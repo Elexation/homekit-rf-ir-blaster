@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "accessory_plan.h"
 #include "config_codec.h"
 #include "config_json.h"
 #include "config_model.h"
@@ -238,6 +239,187 @@ static void test_store_full_retains_previous() {
 	assertConfigEqual(small, r.config);
 }
 
+static VirtualDevice dev(uint16_t id, const std::string& service, const std::string& name) {
+	VirtualDevice d;
+	d.id = id;
+	d.service = service;
+	d.name = name;
+	return d;
+}
+
+static bool containsAid(const std::vector<uint16_t>& v, uint16_t aid) {
+	for (uint16_t x : v)
+		if (x == aid)
+			return true;
+	return false;
+}
+
+static const PlannedAccessory* findAcc(const std::vector<PlannedAccessory>& v, uint16_t aid) {
+	for (const auto& a : v)
+		if (a.aid == aid)
+			return &a;
+	return nullptr;
+}
+
+// Each known service name maps to its type; unknown/empty/wrong-case -> Unknown.
+static void test_service_type_from_string() {
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Switch),
+	                      static_cast<int>(serviceTypeFromString("Switch")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::WindowCovering),
+	                      static_cast<int>(serviceTypeFromString("WindowCovering")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Outlet),
+	                      static_cast<int>(serviceTypeFromString("Outlet")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::LightBulb),
+	                      static_cast<int>(serviceTypeFromString("LightBulb")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Fan),
+	                      static_cast<int>(serviceTypeFromString("Fan")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Television),
+	                      static_cast<int>(serviceTypeFromString("Television")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Unknown),
+	                      static_cast<int>(serviceTypeFromString("Thermostat")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Unknown),
+	                      static_cast<int>(serviceTypeFromString("")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Unknown),
+	                      static_cast<int>(serviceTypeFromString("switch")));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Unknown),
+	                      static_cast<int>(serviceTypeFromString("Lightbulb")));  // lowercase b
+}
+
+// Commands resolve to a borrowed code, with learned reflecting isLearned().
+static void test_plan_resolves_commands_and_learned() {
+	Config cfg;
+	cfg.nextDeviceId = 3;
+	VirtualDevice screen;
+	screen.id = 2;
+	screen.service = "WindowCovering";
+	screen.name = "Screen";
+	screen.commands.push_back({ "up",   makeRf(315, { 300, 900 }) });  // learned
+	screen.commands.push_back({ "stop", StoredCode{} });               // unlearned
+	cfg.devices.push_back(std::move(screen));
+
+	PlanResult plan = planAccessories(cfg);
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(plan.accessories.size()));
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(plan.skipped.size()));
+
+	const PlannedAccessory& a = plan.accessories[0];
+	TEST_ASSERT_EQUAL_UINT16(2, a.aid);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::WindowCovering), static_cast<int>(a.type));
+	TEST_ASSERT_EQUAL_STRING("Screen", a.name.c_str());
+	TEST_ASSERT_EQUAL_UINT32(2, static_cast<uint32_t>(a.commands.size()));
+
+	TEST_ASSERT_EQUAL_STRING("up", a.commands[0].name.c_str());
+	TEST_ASSERT_TRUE(a.commands[0].learned);
+	TEST_ASSERT_NOT_NULL(a.commands[0].code);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(CodeKind::RF), static_cast<int>(a.commands[0].code->kind));
+	TEST_ASSERT_EQUAL_UINT16(300, a.commands[0].code->pulses[0]);
+
+	TEST_ASSERT_EQUAL_STRING("stop", a.commands[1].name.c_str());
+	TEST_ASSERT_FALSE(a.commands[1].learned);
+	TEST_ASSERT_NOT_NULL(a.commands[1].code);  // pointer valid even when unlearned
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(CodeKind::None), static_cast<int>(a.commands[1].code->kind));
+}
+
+// An unrecognized service is dropped from the plan but reported in skipped.
+static void test_plan_skips_unknown_service() {
+	Config cfg;
+	cfg.nextDeviceId = 4;
+	cfg.devices.push_back(dev(2, "Switch", "Lamp"));
+	cfg.devices.push_back(dev(3, "Thermostat", "Nest"));
+
+	PlanResult plan = planAccessories(cfg);
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(plan.accessories.size()));
+	TEST_ASSERT_EQUAL_UINT16(2, plan.accessories[0].aid);
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(plan.skipped.size()));
+	TEST_ASSERT_EQUAL_UINT16(3, plan.skipped[0].id);
+	TEST_ASSERT_EQUAL_STRING("Thermostat", plan.skipped[0].service.c_str());
+}
+
+// Diff sorts devices into added, removed, and updated; unchanged ones into none.
+static void test_diff_add_remove_update() {
+	Config oldCfg;
+	oldCfg.nextDeviceId = 5;
+	oldCfg.devices.push_back(dev(2, "Switch", "A"));  // unchanged
+	oldCfg.devices.push_back(dev(3, "Switch", "B"));  // renamed
+	oldCfg.devices.push_back(dev(4, "Switch", "C"));  // removed
+	Config newCfg;
+	newCfg.nextDeviceId = 6;
+	newCfg.devices.push_back(dev(2, "Switch", "A"));
+	newCfg.devices.push_back(dev(3, "Switch", "B renamed"));
+	newCfg.devices.push_back(dev(5, "Switch", "E"));  // added
+
+	PlanResult oldP = planAccessories(oldCfg);
+	PlanResult newP = planAccessories(newCfg);
+	PlanDiff d = diffPlans(oldP.accessories, newP.accessories);
+
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toAdd.size()));
+	TEST_ASSERT_EQUAL_UINT16(5, d.toAdd[0].aid);
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toRemove.size()));
+	TEST_ASSERT_TRUE(containsAid(d.toRemove, 4));
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toUpdate.size()));
+	TEST_ASSERT_EQUAL_UINT16(3, d.toUpdate[0].aid);
+	TEST_ASSERT_EQUAL_STRING("B renamed", d.toUpdate[0].name.c_str());
+}
+
+// A same-aid service-type change becomes remove + add, never an update.
+static void test_diff_type_change_is_remove_add() {
+	Config oldCfg;
+	oldCfg.nextDeviceId = 3;
+	oldCfg.devices.push_back(dev(2, "Switch", "X"));
+	Config newCfg;
+	newCfg.nextDeviceId = 3;
+	newCfg.devices.push_back(dev(2, "Fan", "X"));
+
+	PlanResult oldP = planAccessories(oldCfg);
+	PlanResult newP = planAccessories(newCfg);
+	PlanDiff d = diffPlans(oldP.accessories, newP.accessories);
+
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toRemove.size()));
+	TEST_ASSERT_TRUE(containsAid(d.toRemove, 2));
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toAdd.size()));
+	const PlannedAccessory* added = findAcc(d.toAdd, 2);
+	TEST_ASSERT_NOT_NULL(added);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ServiceType::Fan), static_cast<int>(added->type));
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toUpdate.size()));
+}
+
+// Deleting an id and adding another leaves surviving aids stable, and the new
+// device takes the next id rather than reusing the freed one.
+static void test_diff_id_stability_delete_add() {
+	Config oldCfg;
+	oldCfg.nextDeviceId = 4;
+	oldCfg.devices.push_back(dev(2, "Switch", "First"));
+	oldCfg.devices.push_back(dev(3, "WindowCovering", "Second"));
+	Config newCfg;
+	newCfg.nextDeviceId = 5;
+	newCfg.devices.push_back(dev(3, "WindowCovering", "Second"));  // stable
+	newCfg.devices.push_back(dev(4, "Switch", "Third"));           // new id, not reused 2
+
+	PlanResult oldP = planAccessories(oldCfg);
+	PlanResult newP = planAccessories(newCfg);
+	PlanDiff d = diffPlans(oldP.accessories, newP.accessories);
+
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toRemove.size()));
+	TEST_ASSERT_TRUE(containsAid(d.toRemove, 2));
+	TEST_ASSERT_EQUAL_UINT32(1, static_cast<uint32_t>(d.toAdd.size()));
+	TEST_ASSERT_EQUAL_UINT16(4, d.toAdd[0].aid);
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toUpdate.size()));
+	TEST_ASSERT_NULL(findAcc(d.toAdd, 3));
+}
+
+// Diffing a plan against itself yields no changes.
+static void test_diff_identical_plans_empty() {
+	Config cfg;
+	cfg.nextDeviceId = 4;
+	cfg.devices.push_back(dev(2, "Switch", "A"));
+	cfg.devices.push_back(dev(3, "Outlet", "B"));
+
+	PlanResult p = planAccessories(cfg);
+	PlanDiff d = diffPlans(p.accessories, p.accessories);
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toAdd.size()));
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toRemove.size()));
+	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toUpdate.size()));
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip_save_load);
@@ -251,5 +433,12 @@ int main(int, char**) {
 	RUN_TEST(test_over_long_pulses_rejected);
 	RUN_TEST(test_over_deep_nesting_rejected);
 	RUN_TEST(test_store_full_retains_previous);
+	RUN_TEST(test_service_type_from_string);
+	RUN_TEST(test_plan_resolves_commands_and_learned);
+	RUN_TEST(test_plan_skips_unknown_service);
+	RUN_TEST(test_diff_add_remove_update);
+	RUN_TEST(test_diff_type_change_is_remove_add);
+	RUN_TEST(test_diff_id_stability_delete_add);
+	RUN_TEST(test_diff_identical_plans_empty);
 	return UNITY_END();
 }
