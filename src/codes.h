@@ -1,18 +1,7 @@
 #pragma once
 
-#include <cstdint>
-
-struct RFCode {
-	const uint16_t* pulses;   // high/low duration pairs, microseconds
-	uint16_t        length;   // entry count, must be even
-	uint16_t        freqMHz;  // 315 or 433
-};
-
-struct IRCode {
-	const uint16_t* pulses;
-	uint16_t        length;
-	uint16_t        carrierHz;  // measured at capture time
-};
+// RFCode/IRCode come from the config layer.
+#include "config_model.h"
 
 void loadCodes();
 
