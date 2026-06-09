@@ -212,6 +212,26 @@ static void test_over_long_pulses_rejected() {
 	                      static_cast<int>(validate(cfg)));
 }
 
+// A device at a reserved id (0/1; aid 1 is the bridge) is rejected by validate.
+static void test_reserved_device_id_rejected() {
+	Config cfg;
+	cfg.nextDeviceId = 3;
+	VirtualDevice d;
+	d.id = 1;  // collides with the bridge accessory
+	d.service = "Switch";
+	cfg.devices.push_back(std::move(d));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedDeviceId),
+	                      static_cast<int>(validate(cfg)));
+
+	cfg.devices.clear();
+	VirtualDevice zero;
+	zero.id = 0;
+	zero.service = "Switch";
+	cfg.devices.push_back(std::move(zero));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedDeviceId),
+	                      static_cast<int>(validate(cfg)));
+}
+
 // JSON nested past the depth ceiling is rejected by the parser.
 static void test_over_deep_nesting_rejected() {
 	const char* deep = "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":1}}}}}}}";
@@ -431,6 +451,7 @@ int main(int, char**) {
 	RUN_TEST(test_encode_over_byte_ceiling_rejected);
 	RUN_TEST(test_too_many_devices_rejected);
 	RUN_TEST(test_over_long_pulses_rejected);
+	RUN_TEST(test_reserved_device_id_rejected);
 	RUN_TEST(test_over_deep_nesting_rejected);
 	RUN_TEST(test_store_full_retains_previous);
 	RUN_TEST(test_service_type_from_string);

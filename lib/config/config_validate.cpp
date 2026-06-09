@@ -15,6 +15,8 @@ ValidateError validate(const Config& cfg) {
 	for (const auto& d : cfg.devices) {
 		if (!seenIds.insert(d.id).second)
 			return ValidateError::DuplicateDeviceId;
+		if (d.id < 2)
+			return ValidateError::ReservedDeviceId;  // 0/1 reserved; aid 1 is the bridge
 		if (d.id >= cfg.nextDeviceId)
 			return ValidateError::NextIdNotMonotonic;
 		if (d.service.empty())

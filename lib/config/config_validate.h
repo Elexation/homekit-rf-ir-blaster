@@ -9,6 +9,7 @@ enum class ValidateError {
 	TooManyDevices,
 	DuplicateDeviceId,
 	NextIdNotMonotonic,
+	ReservedDeviceId,
 	BadService,
 	EmptyLearnedCode,
 	OddPulseCount,
