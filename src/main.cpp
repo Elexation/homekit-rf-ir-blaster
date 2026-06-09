@@ -2,65 +2,34 @@
 
 #include "radios.h"
 #include "ir.h"
-#include "codes.h"
 #include "ui.h"
+#include "accessory_builder.h"
 
-struct ProjectorScreen : Service::WindowCovering {
-	Characteristic::CurrentPosition pos{0};
-	Characteristic::TargetPosition target{0};
-
-	boolean update() override {
-		int t = target.getNewVal();
-		if      (t <= 5)  sendRFCode(315, SCREEN_DOWN);
-		else if (t >= 95) sendRFCode(315, SCREEN_UP);
-		else              sendRFCode(315, SCREEN_STOP);
-		pos.setVal(t);
-		return true;
-	}
-};
-
-struct ProjectorPower : Service::Switch {
-	Characteristic::On power{0};
-
-	boolean update() override {
-		sendIR(POWER_TOGGLE);
-		return true;
-	}
-};
+#include "config_codec.h"
+#include "nvs_blob_store.h"
 
 void setup() {
 	Serial.begin(115200);
 
 	homeSpan.enableAutoStartAP();
 	homeSpan.enableWatchdog(60);
-	homeSpan.enableOTA();
+	// OTA intentionally absent: the no-arg default ships a public password; re-add
+	// only with a per-device password provisioned out-of-band.
 	homeSpan.begin(Category::Bridges, "RF-IR Blaster");
 
 	initRadios();
 	initIR();
 	initUI();
-	loadCodes();
 
-	new SpanAccessory();
-		new Service::AccessoryInformation();
-			new Characteristic::Identify();
-			new Characteristic::Name("RF-IR Blaster");
-
-	new SpanAccessory();
-		new Service::AccessoryInformation();
-			new Characteristic::Identify();
-			new Characteristic::Name("Projector Screen");
-		new ProjectorScreen();
-
-	new SpanAccessory();
-		new Service::AccessoryInformation();
-			new Characteristic::Identify();
-			new Characteristic::Name("Projector");
-		new ProjectorPower();
+	config::NvsBlobStore store;
+	config::DecodeResult res = config::load(store);
+	Serial.printf("config: status=%d usedDefaults=%d devices=%u\n",
+	              (int)res.status, res.usedDefaults, (unsigned)res.config.devices.size());
+	buildAccessories(res.config);
 }
 
 void loop() {
 	homeSpan.poll();
 	updateUI();
-	// TODO: HomeKit liveness / zombie-reboot check once HS_STATUS enum names are verified
+	// TODO: reboot if HomeSpan stays unpaired/disconnected too long (poll getStatus() duration)
 }

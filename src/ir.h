@@ -1,6 +1,6 @@
 #pragma once
 
-#include "codes.h"
+#include "config_model.h"
 
 void initIR();
 void sendIR(const IRCode& code);
