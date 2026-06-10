@@ -13,6 +13,7 @@
 #include "password.h"
 #include "ref_crypto.h"
 #include "request_policy.h"
+#include "session.h"
 
 using namespace runtime;
 using config::Settings;
@@ -481,6 +482,102 @@ static void test_password_known_vector_record() {
 	TEST_ASSERT_FALSE(verifyPassword(c, "passwerd", rec));
 }
 
+// --- session tokens (auth core) ---
+
+static const std::string kSecret = "0123456789abcdef0123456789abcdef";
+
+static std::string sessionPayload(const std::string& tok) {
+	std::vector<uint8_t> p;
+	base64urlDecode(tok.substr(0, tok.find('.')), p);
+	return std::string(p.begin(), p.end());
+}
+
+// A freshly minted token verifies, exposing the user and the user|iat binding.
+static void test_session_mint_then_verify() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 1000);
+	SessionResult r = verifySession(c, kSecret, tok, 1000);
+	TEST_ASSERT_TRUE(r.valid);
+	TEST_ASSERT_EQUAL_STRING("admin", r.user.c_str());
+	TEST_ASSERT_EQUAL_STRING("admin|1000", r.binding.c_str());
+	TEST_ASSERT_FALSE(r.expiredIdle);
+	TEST_ASSERT_FALSE(r.expiredAbsolute);
+}
+
+// The idle window closes at exactly iat + idle timeout.
+static void test_session_idle_expiry() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 0);
+	TEST_ASSERT_TRUE(verifySession(c, kSecret, tok, kIdleTimeoutMs - 1).valid);
+	SessionResult r = verifySession(c, kSecret, tok, kIdleTimeoutMs);
+	TEST_ASSERT_FALSE(r.valid);
+	TEST_ASSERT_TRUE(r.expiredIdle);
+	TEST_ASSERT_FALSE(r.expiredAbsolute);
+}
+
+// The absolute cap rejects the token at iat + absolute timeout.
+static void test_session_absolute_cap() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 0);
+	SessionResult r = verifySession(c, kSecret, tok, kAbsoluteTimeoutMs);
+	TEST_ASSERT_FALSE(r.valid);
+	TEST_ASSERT_TRUE(r.expiredAbsolute);
+}
+
+// Refresh slides the idle deadline to now + timeout but never moves iat or the absolute cap.
+static void test_session_refresh_slides_idle_not_absolute() {
+	test::RefCrypto c;
+	std::string tok0 = mintSession(c, kSecret, "admin", 0);
+	TEST_ASSERT_EQUAL_STRING("admin|0|28800000|900000", sessionPayload(tok0).c_str());
+
+	std::string tok1 = refreshSession(c, kSecret, tok0, 600000);  // refresh at 10 min
+	TEST_ASSERT_FALSE(tok1.empty());
+	TEST_ASSERT_EQUAL_STRING("admin|0|28800000|1500000", sessionPayload(tok1).c_str());
+
+	// The slid token outlives the original's idle window.
+	TEST_ASSERT_TRUE(verifySession(c, kSecret, tok1, 1200000).valid);
+	TEST_ASSERT_TRUE(verifySession(c, kSecret, tok0, 1200000).expiredIdle);
+}
+
+// Refreshing a token whose idle window already closed returns nothing (no reviving the dead).
+static void test_session_refresh_rejects_expired() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 0);
+	TEST_ASSERT_TRUE(refreshSession(c, kSecret, tok, kIdleTimeoutMs).empty());
+}
+
+// Any edit to the payload or the signature breaks verification.
+static void test_session_rejects_tampered_token() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 1000);
+
+	std::string p = tok;
+	p[0] = (p[0] == 'A') ? 'B' : 'A';  // a payload byte
+	TEST_ASSERT_FALSE(verifySession(c, kSecret, p, 1000).valid);
+
+	std::string s = tok;
+	size_t dot = tok.find('.');
+	s[dot + 1] = (s[dot + 1] == 'A') ? 'B' : 'A';  // a signature byte
+	TEST_ASSERT_FALSE(verifySession(c, kSecret, s, 1000).valid);
+}
+
+// A token minted under a different secret never verifies.
+static void test_session_wrong_secret() {
+	test::RefCrypto c;
+	std::string tok = mintSession(c, kSecret, "admin", 1000);
+	TEST_ASSERT_FALSE(verifySession(c, "wrong-secret", tok, 1000).valid);
+}
+
+// Malformed tokens and invalid users are rejected, not parsed.
+static void test_session_malformed_and_bad_user() {
+	test::RefCrypto c;
+	TEST_ASSERT_FALSE(verifySession(c, kSecret, "", 0).valid);
+	TEST_ASSERT_FALSE(verifySession(c, kSecret, "no-separator", 0).valid);
+	TEST_ASSERT_FALSE(verifySession(c, kSecret, "a.b.c", 0).valid);   // two separators
+	TEST_ASSERT_TRUE(mintSession(c, kSecret, "ad|min", 1000).empty());  // '|' in user
+	TEST_ASSERT_TRUE(mintSession(c, kSecret, "", 1000).empty());        // empty user
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_locks_at_threshold);
@@ -521,5 +618,13 @@ int main(int, char**) {
 	RUN_TEST(test_password_rejects_tampered_record);
 	RUN_TEST(test_password_iteration_count_is_used);
 	RUN_TEST(test_password_known_vector_record);
+	RUN_TEST(test_session_mint_then_verify);
+	RUN_TEST(test_session_idle_expiry);
+	RUN_TEST(test_session_absolute_cap);
+	RUN_TEST(test_session_refresh_slides_idle_not_absolute);
+	RUN_TEST(test_session_refresh_rejects_expired);
+	RUN_TEST(test_session_rejects_tampered_token);
+	RUN_TEST(test_session_wrong_secret);
+	RUN_TEST(test_session_malformed_and_bad_user);
 	return UNITY_END();
 }
