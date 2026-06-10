@@ -8,11 +8,13 @@
 #include "boot_recovery.h"
 #include "client_key.h"
 #include "crypto.h"
+#include "csrf.h"
 #include "encoding.h"
 #include "login_throttle.h"
 #include "password.h"
 #include "ref_crypto.h"
 #include "request_policy.h"
+#include "security_headers.h"
 #include "session.h"
 
 using namespace runtime;
@@ -578,6 +580,88 @@ static void test_session_malformed_and_bad_user() {
 	TEST_ASSERT_TRUE(mintSession(c, kSecret, "", 1000).empty());        // empty user
 }
 
+// --- CSRF (auth core) ---
+
+static const uint8_t kCsrfRand[8] = {9, 8, 7, 6, 5, 4, 3, 2};
+
+// A minted token verifies when the cookie and form copies match under the right binding.
+static void test_csrf_mint_then_verify() {
+	test::RefCrypto c;
+	std::string tok = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand));
+	TEST_ASSERT_TRUE(verifyCsrf(c, kSecret, "admin|1000", tok, tok));
+}
+
+// Double-submit fails when the cookie and form tokens differ or the form copy is missing.
+static void test_csrf_cookie_form_mismatch() {
+	test::RefCrypto c;
+	std::string tok = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand));
+	std::string other = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand) - 1);
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|1000", tok, other));
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|1000", tok, ""));
+}
+
+// A token bound to one session is rejected against a different binding.
+static void test_csrf_wrong_binding() {
+	test::RefCrypto c;
+	std::string tok = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand));
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|2000", tok, tok));
+}
+
+// A token signed under a different secret never verifies.
+static void test_csrf_wrong_secret() {
+	test::RefCrypto c;
+	std::string tok = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand));
+	TEST_ASSERT_FALSE(verifyCsrf(c, "wrong-secret", "admin|1000", tok, tok));
+}
+
+// Tampering with the matched token breaks the signature; malformed tokens are rejected.
+static void test_csrf_tampered_and_malformed() {
+	test::RefCrypto c;
+	std::string tok = mintCsrf(c, kSecret, "admin|1000", kCsrfRand, sizeof(kCsrfRand));
+	std::string bad = tok;
+	bad[0] = (bad[0] == 'A') ? 'B' : 'A';  // first rand char; avoids base64 trailing-bit no-ops
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|1000", bad, bad));
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|1000", "no-dot", "no-dot"));
+	TEST_ASSERT_FALSE(verifyCsrf(c, kSecret, "admin|1000", "a.b.c", "a.b.c"));
+}
+
+// --- security headers (auth core) ---
+
+// The session cookie carries the __Host- prefix and the full hardening attribute set.
+static void test_session_cookie_format() {
+	TEST_ASSERT_EQUAL_STRING(
+		"__Host-SID=tok123; Secure; HttpOnly; SameSite=Strict; Path=/",
+		sessionCookie("tok123").c_str());
+	TEST_ASSERT_EQUAL_STRING(
+		"__Host-SID=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+		clearSessionCookie().c_str());
+}
+
+// The CSRF cookie mirrors those attributes under its own name.
+static void test_csrf_cookie_format() {
+	TEST_ASSERT_EQUAL_STRING(
+		"__Host-CSRF=abc.def; Secure; HttpOnly; SameSite=Strict; Path=/",
+		csrfCookie("abc.def").c_str());
+}
+
+// HSTS pins one year, no includeSubDomains or preload.
+static void test_hsts_header() {
+	TEST_ASSERT_EQUAL_STRING("max-age=31536000", hstsHeader().c_str());
+}
+
+// The static hardening headers carry their exact names and values.
+static void test_static_security_headers() {
+	TEST_ASSERT_EQUAL_UINT(4, kStaticSecurityHeaderCount);
+	TEST_ASSERT_EQUAL_STRING("X-Content-Type-Options", kStaticSecurityHeaders[0].name);
+	TEST_ASSERT_EQUAL_STRING("nosniff", kStaticSecurityHeaders[0].value);
+	TEST_ASSERT_EQUAL_STRING("X-Frame-Options", kStaticSecurityHeaders[1].name);
+	TEST_ASSERT_EQUAL_STRING("DENY", kStaticSecurityHeaders[1].value);
+	TEST_ASSERT_EQUAL_STRING("Referrer-Policy", kStaticSecurityHeaders[2].name);
+	TEST_ASSERT_EQUAL_STRING("no-referrer", kStaticSecurityHeaders[2].value);
+	TEST_ASSERT_EQUAL_STRING("Cache-Control", kStaticSecurityHeaders[3].name);
+	TEST_ASSERT_EQUAL_STRING("no-store", kStaticSecurityHeaders[3].value);
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_locks_at_threshold);
@@ -626,5 +710,14 @@ int main(int, char**) {
 	RUN_TEST(test_session_rejects_tampered_token);
 	RUN_TEST(test_session_wrong_secret);
 	RUN_TEST(test_session_malformed_and_bad_user);
+	RUN_TEST(test_csrf_mint_then_verify);
+	RUN_TEST(test_csrf_cookie_form_mismatch);
+	RUN_TEST(test_csrf_wrong_binding);
+	RUN_TEST(test_csrf_wrong_secret);
+	RUN_TEST(test_csrf_tampered_and_malformed);
+	RUN_TEST(test_session_cookie_format);
+	RUN_TEST(test_csrf_cookie_format);
+	RUN_TEST(test_hsts_header);
+	RUN_TEST(test_static_security_headers);
 	return UNITY_END();
 }
