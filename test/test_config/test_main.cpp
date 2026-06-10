@@ -10,6 +10,7 @@
 #include "config_model.h"
 #include "config_validate.h"
 #include "memory_blob_store.h"
+#include "settings_change.h"
 
 using namespace config;
 
@@ -440,6 +441,114 @@ static void test_diff_identical_plans_empty() {
 	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toUpdate.size()));
 }
 
+// Port 0 and the OTA/mDNS reserved ports are rejected.
+static void test_listen_port_reserved_rejected() {
+	Config cfg = sampleConfig();
+	cfg.settings.listenPort = 0;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::BadListenPort),
+	                      static_cast<int>(validate(cfg)));
+	cfg.settings.listenPort = OTA_PORT;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedListenPort),
+	                      static_cast<int>(validate(cfg)));
+	cfg.settings.listenPort = MDNS_PORT;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedListenPort),
+	                      static_cast<int>(validate(cfg)));
+}
+
+// An empty domain is rejected only when redirect/proxy actually use it.
+static void test_empty_domain_required_vs_unused() {
+	Config cfg = sampleConfig();
+	cfg.settings.canonicalDomain = "";
+	cfg.settings.trustedProxy = true;
+	cfg.settings.httpToHttpsRedirect = false;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::EmptyCanonicalDomain),
+	                      static_cast<int>(validate(cfg)));
+
+	cfg.settings.trustedProxy = false;  // neither flag set: empty domain allowed
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
+	                      static_cast<int>(validate(cfg)));
+}
+
+// Hostnames, a single label, an IPv4 literal, and a trailing dot all pass.
+static void test_valid_domains_accepted() {
+	Config cfg = sampleConfig();
+	cfg.settings.trustedProxy = true;
+	auto ok = [&](const char* d) {
+		cfg.settings.canonicalDomain = d;
+		return validate(cfg) == ValidateError::Ok;
+	};
+	TEST_ASSERT_TRUE(ok("blaster.local"));
+	TEST_ASSERT_TRUE(ok("blaster"));
+	TEST_ASSERT_TRUE(ok("192.168.1.50"));
+	TEST_ASSERT_TRUE(ok("blaster.local."));
+}
+
+// URL punctuation, a leading dash, a space, and an over-long label are rejected.
+static void test_bad_domains_rejected() {
+	Config cfg = sampleConfig();
+	cfg.settings.trustedProxy = true;
+	auto bad = [&](const std::string& d) {
+		cfg.settings.canonicalDomain = d;
+		return validate(cfg) == ValidateError::BadCanonicalDomain;
+	};
+	TEST_ASSERT_TRUE(bad("https://x"));
+	TEST_ASSERT_TRUE(bad("x/admin"));
+	TEST_ASSERT_TRUE(bad("x:8443"));
+	TEST_ASSERT_TRUE(bad("-bad"));
+	TEST_ASSERT_TRUE(bad("a b"));
+	TEST_ASSERT_TRUE(bad(std::string(MAX_LABEL_LEN + 1, 'a')));
+}
+
+// A domain past MAX_DOMAIN_LEN trips the length check, not the format check.
+static void test_domain_too_long_rejected() {
+	Config cfg = sampleConfig();
+	cfg.settings.trustedProxy = true;
+	std::string longDomain;
+	while (longDomain.size() <= MAX_DOMAIN_LEN) {
+		if (!longDomain.empty())
+			longDomain += '.';
+		longDomain += std::string(50, 'a');  // valid 50-char labels; only length trips
+	}
+	TEST_ASSERT_TRUE(longDomain.size() > MAX_DOMAIN_LEN);
+	cfg.settings.canonicalDomain = longDomain;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::DomainTooLong),
+	                      static_cast<int>(validate(cfg)));
+}
+
+// Identical settings classify as Live; the wrapper agrees.
+static void test_classify_identical_is_live() {
+	Settings a;
+	Settings b;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ApplyKind::Live),
+	                      static_cast<int>(classifyChange(a, b)));
+	TEST_ASSERT_FALSE(requiresRestart(a, b));
+}
+
+// Each of the six Settings fields, changed alone, requires a restart.
+static void test_classify_each_field_requires_restart() {
+	Settings base;
+
+	Settings p = base; p.listenPort = 8080;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ApplyKind::RequiresRestart),
+	                      static_cast<int>(classifyChange(base, p)));
+	TEST_ASSERT_TRUE(requiresRestart(base, p));
+
+	Settings d = base; d.canonicalDomain = "other.local";
+	TEST_ASSERT_TRUE(requiresRestart(base, d));
+
+	Settings h = base; h.https = !base.https;
+	TEST_ASSERT_TRUE(requiresRestart(base, h));
+
+	Settings tp = base; tp.trustedProxy = !base.trustedProxy;
+	TEST_ASSERT_TRUE(requiresRestart(base, tp));
+
+	Settings rd = base; rd.httpToHttpsRedirect = !base.httpToHttpsRedirect;
+	TEST_ASSERT_TRUE(requiresRestart(base, rd));
+
+	Settings rq = base; rq.requireHttps = !base.requireHttps;
+	TEST_ASSERT_TRUE(requiresRestart(base, rq));
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip_save_load);
@@ -461,5 +570,12 @@ int main(int, char**) {
 	RUN_TEST(test_diff_type_change_is_remove_add);
 	RUN_TEST(test_diff_id_stability_delete_add);
 	RUN_TEST(test_diff_identical_plans_empty);
+	RUN_TEST(test_listen_port_reserved_rejected);
+	RUN_TEST(test_empty_domain_required_vs_unused);
+	RUN_TEST(test_valid_domains_accepted);
+	RUN_TEST(test_bad_domains_rejected);
+	RUN_TEST(test_domain_too_long_rejected);
+	RUN_TEST(test_classify_identical_is_live);
+	RUN_TEST(test_classify_each_field_requires_restart);
 	return UNITY_END();
 }
