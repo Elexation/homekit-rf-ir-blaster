@@ -16,6 +16,7 @@
 #include "request_policy.h"
 #include "security_headers.h"
 #include "session.h"
+#include "setup_state.h"
 
 using namespace runtime;
 using config::Settings;
@@ -662,6 +663,50 @@ static void test_static_security_headers() {
 	TEST_ASSERT_EQUAL_STRING("no-store", kStaticSecurityHeaders[3].value);
 }
 
+// --- first-boot setup (auth core) ---
+
+// Before any credential the device awaits setup; once one exists it is configured.
+static void test_setup_current_mode() {
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(SetupMode::AwaitingSetup),
+	                      static_cast<int>(currentMode(false)));
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(SetupMode::Configured),
+	                      static_cast<int>(currentMode(true)));
+}
+
+// Once configured, setup is refused even with a matching nonce or an open window.
+static void test_setup_configured_rejects() {
+	TEST_ASSERT_FALSE(setupAllowed(true, "nonce", "nonce", 10000, 0));
+}
+
+// A matching stored nonce opens setup (the bench second factor).
+static void test_setup_valid_nonce_allows() {
+	TEST_ASSERT_TRUE(setupAllowed(false, "abc123", "abc123", 0, 1000));
+}
+
+// An open button window opens setup without a nonce; it closes at the deadline.
+static void test_setup_window_open_allows() {
+	TEST_ASSERT_TRUE(setupAllowed(false, "", "", 5000, 4999));
+	TEST_ASSERT_FALSE(setupAllowed(false, "", "", 5000, 5000));
+}
+
+// With neither a valid nonce nor an open window, setup is refused.
+static void test_setup_neither_rejects() {
+	TEST_ASSERT_FALSE(setupAllowed(false, "", "", 0, 1000));
+}
+
+// A wrong nonce, or an empty stored nonce, never grants setup on its own.
+static void test_setup_wrong_nonce_rejects() {
+	TEST_ASSERT_FALSE(setupAllowed(false, "wrong", "right", 0, 1000));
+	TEST_ASSERT_FALSE(setupAllowed(false, "", "", 0, 1000));
+	TEST_ASSERT_FALSE(setupAllowed(false, "anything", "", 0, 1000));
+}
+
+// makeNonce base64url-encodes the supplied random bytes (exercises '-').
+static void test_setup_make_nonce() {
+	const uint8_t r[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02};
+	TEST_ASSERT_EQUAL_STRING("3q2-7wEC", makeNonce(r, sizeof(r)).c_str());
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_locks_at_threshold);
@@ -719,5 +764,12 @@ int main(int, char**) {
 	RUN_TEST(test_csrf_cookie_format);
 	RUN_TEST(test_hsts_header);
 	RUN_TEST(test_static_security_headers);
+	RUN_TEST(test_setup_current_mode);
+	RUN_TEST(test_setup_configured_rejects);
+	RUN_TEST(test_setup_valid_nonce_allows);
+	RUN_TEST(test_setup_window_open_allows);
+	RUN_TEST(test_setup_neither_rejects);
+	RUN_TEST(test_setup_wrong_nonce_rejects);
+	RUN_TEST(test_setup_make_nonce);
 	return UNITY_END();
 }
