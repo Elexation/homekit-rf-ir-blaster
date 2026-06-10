@@ -4,11 +4,13 @@
 #include <string>
 #include <vector>
 
+#include "auth_config.h"
 #include "boot_recovery.h"
 #include "client_key.h"
 #include "crypto.h"
 #include "encoding.h"
 #include "login_throttle.h"
+#include "password.h"
 #include "ref_crypto.h"
 #include "request_policy.h"
 
@@ -300,6 +302,18 @@ static const uint8_t* bytes(const std::string& s) {
 	return reinterpret_cast<const uint8_t*>(s.data());
 }
 
+static std::vector<uint8_t> fromHex(const std::string& h) {
+	std::vector<uint8_t> out;
+	out.reserve(h.size() / 2);
+	auto nib = [](char c) -> int {
+		if (c >= '0' && c <= '9') return c - '0';
+		return (c | 0x20) - 'a' + 10;  // lower-case the letter, then offset
+	};
+	for (size_t i = 0; i + 1 < h.size(); i += 2)
+		out.push_back(static_cast<uint8_t>((nib(h[i]) << 4) | nib(h[i + 1])));
+	return out;
+}
+
 // SHA-256 known-answer vectors (FIPS 180-4).
 static void test_sha256_kat() {
 	test::RefCrypto c;
@@ -391,6 +405,82 @@ static void test_constant_time_equal() {
 	TEST_ASSERT_FALSE(constantTimeEqual(std::string("abc"), std::string("abd")));
 }
 
+// --- password hashing (auth core) ---
+
+static const uint8_t kSalt16[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+
+// A derived record verifies its own password and rejects wrong ones (case-sensitive, empty).
+static void test_password_derive_then_verify() {
+	test::RefCrypto c;
+	std::string rec = deriveCredential(c, "correct horse battery staple",
+	                                   kSalt16, sizeof(kSalt16), 1000);
+	TEST_ASSERT_TRUE(verifyPassword(c, "correct horse battery staple", rec));
+	TEST_ASSERT_FALSE(verifyPassword(c, "Correct Horse Battery Staple", rec));
+	TEST_ASSERT_FALSE(verifyPassword(c, "", rec));
+}
+
+// The record carries the algorithm tag, the iteration count, and exactly four fields.
+static void test_password_record_format() {
+	test::RefCrypto c;
+	std::string rec = deriveCredential(c, "pw", kSalt16, sizeof(kSalt16), 4096);
+	TEST_ASSERT_EQUAL_INT(0, static_cast<int>(rec.rfind("pbkdf2_sha256$4096$", 0)));
+	int dollars = 0;
+	for (char ch : rec)
+		if (ch == '$') ++dollars;
+	TEST_ASSERT_EQUAL_INT(3, dollars);
+}
+
+// Every shape of malformed record is rejected rather than crashing or matching.
+static void test_password_rejects_malformed_record() {
+	test::RefCrypto c;
+	std::string dk32 = base64urlEncode(std::vector<uint8_t>(32, 0).data(), 32);
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", ""));
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$1000"));               // too few fields
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "scrypt$1000$c2FsdA$" + dk32));        // wrong algorithm
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$0$c2FsdA$" + dk32));     // zero iterations
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$abc$c2FsdA$" + dk32));   // non-digit iterations
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$1000$****$" + dk32));    // bad base64url salt
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$1000$$" + dk32));        // empty salt
+	TEST_ASSERT_FALSE(verifyPassword(c, "pw", "pbkdf2_sha256$1000$c2FsdA$AAAA"));     // derived key wrong length
+}
+
+// Flipping a byte of the stored derived key makes the right password stop verifying.
+static void test_password_rejects_tampered_record() {
+	test::RefCrypto c;
+	std::string rec = deriveCredential(c, "hunter2", kSalt16, sizeof(kSalt16), 2048);
+	TEST_ASSERT_TRUE(verifyPassword(c, "hunter2", rec));
+
+	std::string tampered = rec;
+	char& first = tampered[rec.rfind('$') + 1];  // first char of the derived-key field
+	first = (first == 'A') ? 'B' : 'A';
+	TEST_ASSERT_FALSE(verifyPassword(c, "hunter2", tampered));
+}
+
+// The stored iteration count drives derivation: a record claiming the wrong count fails.
+static void test_password_iteration_count_is_used() {
+	test::RefCrypto c;
+	std::vector<uint8_t> dkC1 =
+		fromHex("120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+	std::string salt = base64urlEncode(std::string("salt"));
+	std::string good = "pbkdf2_sha256$1$" + salt + "$" + base64urlEncode(dkC1.data(), 32);
+	std::string bad  = "pbkdf2_sha256$2$" + salt + "$" + base64urlEncode(dkC1.data(), 32);
+	TEST_ASSERT_TRUE(verifyPassword(c, "password", good));
+	TEST_ASSERT_FALSE(verifyPassword(c, "password", bad));
+}
+
+// A record hand-built from a published PBKDF2 vector verifies (parse + compare are correct).
+static void test_password_known_vector_record() {
+	test::RefCrypto c;
+	// RFC 7914: P="password", S="salt", c=4096, dkLen=32.
+	std::vector<uint8_t> dk =
+		fromHex("c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
+	std::string rec =
+		"pbkdf2_sha256$4096$" + base64urlEncode(std::string("salt")) + "$" +
+		base64urlEncode(dk.data(), dk.size());
+	TEST_ASSERT_TRUE(verifyPassword(c, "password", rec));
+	TEST_ASSERT_FALSE(verifyPassword(c, "passwerd", rec));
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_locks_at_threshold);
@@ -425,5 +515,11 @@ int main(int, char**) {
 	RUN_TEST(test_base64url_known_and_roundtrip);
 	RUN_TEST(test_base64url_rejects_invalid);
 	RUN_TEST(test_constant_time_equal);
+	RUN_TEST(test_password_derive_then_verify);
+	RUN_TEST(test_password_record_format);
+	RUN_TEST(test_password_rejects_malformed_record);
+	RUN_TEST(test_password_rejects_tampered_record);
+	RUN_TEST(test_password_iteration_count_is_used);
+	RUN_TEST(test_password_known_vector_record);
 	return UNITY_END();
 }
