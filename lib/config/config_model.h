@@ -33,7 +33,7 @@ constexpr size_t   MAX_DOMAIN_LEN   = 253;   // max total DNS name length
 constexpr size_t   MAX_LABEL_LEN    = 63;    // single DNS label ceiling
 constexpr uint16_t OTA_PORT         = 3232;  // Arduino OTA; rejected as a listenPort
 constexpr uint16_t MDNS_PORT        = 5353;  // mDNS; rejected as a listenPort
-constexpr uint16_t HAP_DEFAULT_PORT = 80;    // not enforced; config server must move HAP off it
+constexpr uint16_t HAP_PORT         = 1201;  // HomeKit (moved off 80); rejected as a listenPort
 
 enum class CodeKind : uint8_t {
 	None = 0,  // nothing learned yet; never transmitted

@@ -441,7 +441,7 @@ static void test_diff_identical_plans_empty() {
 	TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(d.toUpdate.size()));
 }
 
-// Port 0 and the OTA/mDNS reserved ports are rejected.
+// Port 0 and the OTA/mDNS/HAP reserved ports are rejected.
 static void test_listen_port_reserved_rejected() {
 	Config cfg = sampleConfig();
 	cfg.settings.listenPort = 0;
@@ -452,6 +452,17 @@ static void test_listen_port_reserved_rejected() {
 	                      static_cast<int>(validate(cfg)));
 	cfg.settings.listenPort = MDNS_PORT;
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedListenPort),
+	                      static_cast<int>(validate(cfg)));
+	cfg.settings.listenPort = HAP_PORT;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::ReservedListenPort),
+	                      static_cast<int>(validate(cfg)));
+}
+
+// Port 80 is a valid listen port now that HomeKit is moved off it.
+static void test_listen_port_80_allowed() {
+	Config cfg = sampleConfig();
+	cfg.settings.listenPort = 80;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
 	                      static_cast<int>(validate(cfg)));
 }
 
@@ -571,6 +582,7 @@ int main(int, char**) {
 	RUN_TEST(test_diff_id_stability_delete_add);
 	RUN_TEST(test_diff_identical_plans_empty);
 	RUN_TEST(test_listen_port_reserved_rejected);
+	RUN_TEST(test_listen_port_80_allowed);
 	RUN_TEST(test_empty_domain_required_vs_unused);
 	RUN_TEST(test_valid_domains_accepted);
 	RUN_TEST(test_bad_domains_rejected);

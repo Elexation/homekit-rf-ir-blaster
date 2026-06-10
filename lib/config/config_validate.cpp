@@ -2,32 +2,9 @@
 
 #include <set>
 
-namespace config {
+#include "ip_util.h"
 
-// Strict dotted-quad: exactly four numeric octets, each 0..255, no trailing dot.
-static bool parseIPv4(const std::string& s) {
-	int parts = 0;
-	size_t i = 0, n = s.size();
-	while (i < n) {
-		int val = 0, digits = 0;
-		while (i < n && s[i] >= '0' && s[i] <= '9') {
-			val = val * 10 + (s[i] - '0');
-			if (++digits > 3)
-				return false;
-			++i;
-		}
-		if (digits == 0 || val > 255)
-			return false;
-		++parts;
-		if (i < n) {
-			if (s[i] != '.')
-				return false;
-			if (++i == n)
-				return false;  // no trailing dot
-		}
-	}
-	return parts == 4;
-}
+namespace config {
 
 // Hostname: dot-separated labels of [A-Za-z0-9-], each 1..MAX_LABEL_LEN, no
 // leading/trailing '-', one optional trailing dot. No TLD required.
@@ -68,7 +45,7 @@ static bool isValidHostOrIp(const std::string& s) {
 		    c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
 			return false;
 	}
-	return parseIPv4(s) || isValidHostname(s);
+	return isIPv4(s) || isValidHostname(s);
 }
 
 ValidateError validate(const Config& cfg) {
@@ -77,7 +54,8 @@ ValidateError validate(const Config& cfg) {
 
 	if (cfg.settings.listenPort == 0)
 		return ValidateError::BadListenPort;
-	if (cfg.settings.listenPort == OTA_PORT || cfg.settings.listenPort == MDNS_PORT)
+	if (cfg.settings.listenPort == OTA_PORT || cfg.settings.listenPort == MDNS_PORT ||
+	    cfg.settings.listenPort == HAP_PORT)
 		return ValidateError::ReservedListenPort;
 
 	// canonicalDomain only matters when it is used to build an origin.
