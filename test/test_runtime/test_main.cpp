@@ -1,10 +1,15 @@
 #include <unity.h>
 
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "boot_recovery.h"
 #include "client_key.h"
+#include "crypto.h"
+#include "encoding.h"
 #include "login_throttle.h"
+#include "ref_crypto.h"
 #include "request_policy.h"
 
 using namespace runtime;
@@ -278,6 +283,114 @@ static void test_policy_untrusted_forwarded_proto_ignored() {
 	TEST_ASSERT_EQUAL_STRING("https://blaster.local/", d.location.c_str());
 }
 
+// --- crypto / encoding (auth core) ---
+
+static std::string toHex(const uint8_t* p, size_t n) {
+	static const char* h = "0123456789abcdef";
+	std::string s;
+	s.reserve(n * 2);
+	for (size_t i = 0; i < n; ++i) {
+		s.push_back(h[p[i] >> 4]);
+		s.push_back(h[p[i] & 0xF]);
+	}
+	return s;
+}
+
+static const uint8_t* bytes(const std::string& s) {
+	return reinterpret_cast<const uint8_t*>(s.data());
+}
+
+// SHA-256 known-answer vectors (FIPS 180-4).
+static void test_sha256_kat() {
+	test::RefCrypto c;
+	uint8_t out[32];
+	c.sha256(bytes("abc"), 3, out);
+	TEST_ASSERT_EQUAL_STRING(
+		"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		toHex(out, 32).c_str());
+	c.sha256(bytes(""), 0, out);
+	TEST_ASSERT_EQUAL_STRING(
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		toHex(out, 32).c_str());
+}
+
+// HMAC-SHA256 known-answer vectors (RFC 4231 cases 1 and 2).
+static void test_hmac_sha256_kat() {
+	test::RefCrypto c;
+	uint8_t out[32];
+	uint8_t key1[20];
+	memset(key1, 0x0b, 20);
+	std::string d1 = "Hi There";
+	c.hmacSha256(key1, 20, bytes(d1), d1.size(), out);
+	TEST_ASSERT_EQUAL_STRING(
+		"b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+		toHex(out, 32).c_str());
+
+	std::string k2 = "Jefe", d2 = "what do ya want for nothing?";
+	c.hmacSha256(bytes(k2), k2.size(), bytes(d2), d2.size(), out);
+	TEST_ASSERT_EQUAL_STRING(
+		"5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+		toHex(out, 32).c_str());
+}
+
+static std::string pbkdf2Hex(const test::RefCrypto& c, uint32_t iters) {
+	std::string p = "password", s = "salt";
+	uint8_t out[32];
+	c.pbkdf2HmacSha256(bytes(p), p.size(), bytes(s), s.size(), iters, out, 32);
+	return toHex(out, 32);
+}
+
+// PBKDF2-HMAC-SHA256 known-answer vectors (RFC 7914 appendix; password/salt, dkLen 32).
+static void test_pbkdf2_kat() {
+	test::RefCrypto c;
+	TEST_ASSERT_EQUAL_STRING(
+		"120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b",
+		pbkdf2Hex(c, 1).c_str());
+	TEST_ASSERT_EQUAL_STRING(
+		"ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43",
+		pbkdf2Hex(c, 2).c_str());
+	TEST_ASSERT_EQUAL_STRING(
+		"c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a",
+		pbkdf2Hex(c, 4096).c_str());
+}
+
+// Known base64url strings plus a full 0..255 round-trip that exercises '-' and '_'.
+static void test_base64url_known_and_roundtrip() {
+	TEST_ASSERT_EQUAL_STRING("Zm9vYmFy", base64urlEncode(std::string("foobar")).c_str());
+	TEST_ASSERT_EQUAL_STRING("Zg", base64urlEncode(std::string("f")).c_str());
+	TEST_ASSERT_EQUAL_STRING("", base64urlEncode(std::string("")).c_str());
+
+	std::vector<uint8_t> all(256);
+	for (int i = 0; i < 256; ++i) all[i] = uint8_t(i);
+	std::string enc = base64urlEncode(all.data(), all.size());
+	TEST_ASSERT_TRUE(enc.find('+') == std::string::npos);
+	TEST_ASSERT_TRUE(enc.find('/') == std::string::npos);
+	TEST_ASSERT_TRUE(enc.find('=') == std::string::npos);
+
+	std::vector<uint8_t> back;
+	TEST_ASSERT_TRUE(base64urlDecode(enc, back));
+	TEST_ASSERT_EQUAL_UINT(256, back.size());
+	TEST_ASSERT_EQUAL_INT(0, memcmp(all.data(), back.data(), 256));
+}
+
+static void test_base64url_rejects_invalid() {
+	std::vector<uint8_t> out;
+	TEST_ASSERT_FALSE(base64urlDecode("####", out));  // non-alphabet
+	TEST_ASSERT_FALSE(base64urlDecode("Zg=", out));    // '=' not in the url alphabet
+	TEST_ASSERT_FALSE(base64urlDecode("A", out));      // impossible length (1 mod 4)
+}
+
+static void test_constant_time_equal() {
+	uint8_t a[4] = {1, 2, 3, 4};
+	uint8_t b[4] = {1, 2, 3, 4};
+	uint8_t d[4] = {1, 2, 3, 5};
+	TEST_ASSERT_TRUE(constantTimeEqual(a, b, 4));
+	TEST_ASSERT_FALSE(constantTimeEqual(a, d, 4));
+	TEST_ASSERT_TRUE(constantTimeEqual(std::string("abc"), std::string("abc")));
+	TEST_ASSERT_FALSE(constantTimeEqual(std::string("abc"), std::string("abcd")));
+	TEST_ASSERT_FALSE(constantTimeEqual(std::string("abc"), std::string("abd")));
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_locks_at_threshold);
@@ -306,5 +419,11 @@ int main(int, char**) {
 	RUN_TEST(test_policy_plain_http_allowed);
 	RUN_TEST(test_policy_trusted_forwarded_proto_https_serves);
 	RUN_TEST(test_policy_untrusted_forwarded_proto_ignored);
+	RUN_TEST(test_sha256_kat);
+	RUN_TEST(test_hmac_sha256_kat);
+	RUN_TEST(test_pbkdf2_kat);
+	RUN_TEST(test_base64url_known_and_roundtrip);
+	RUN_TEST(test_base64url_rejects_invalid);
+	RUN_TEST(test_constant_time_equal);
 	return UNITY_END();
 }
