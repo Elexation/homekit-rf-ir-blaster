@@ -1,0 +1,48 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+@font-face {
+	font-family: 'Outfit';
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('../fonts/Outfit.woff2') format('woff2');
+}
+
+html, body { margin: 0; }
+
+body {
+	min-height: 100vh;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: var(--font);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+button {
+	margin: 0;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+
+/* Inline <symbol> sprite host: defines icons, never renders itself. */
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* Stroke icons inherit color; pixel size comes from width/height attrs on the <svg>. */
+.icon {
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+	}
+}
