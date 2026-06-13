@@ -27,10 +27,17 @@
 		});
 	}
 
+	var fadeTimer = null;
+
 	function init() {
 		setTheme(current(), false);
 		document.querySelectorAll('[data-theme-toggle]').forEach(function (btn) {
 			btn.addEventListener('click', function () {
+				var root = document.documentElement;
+				// held just past base.css's 0.35s palette transition
+				root.classList.add('theme-fade');
+				clearTimeout(fadeTimer);
+				fadeTimer = setTimeout(function () { root.classList.remove('theme-fade'); }, 400);
 				setTheme(current() === 'dark' ? 'light' : 'dark', true);
 			});
 		});
@@ -41,4 +48,15 @@
 	} else {
 		init();
 	}
+})();
+
+// scrollbars hide when idle; capture phase because scroll events do not bubble
+(function () {
+	var scrollTimer = null;
+	document.addEventListener('scroll', function () {
+		var root = document.documentElement;
+		root.classList.add('is-scrolling');
+		clearTimeout(scrollTimer);
+		scrollTimer = setTimeout(function () { root.classList.remove('is-scrolling'); }, 1000);
+	}, { capture: true, passive: true });
 })();

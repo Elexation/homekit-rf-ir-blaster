@@ -3,12 +3,24 @@
 @font-face {
 	font-family: 'Outfit';
 	font-style: normal;
-	font-weight: 100 900;
+	font-weight: 400 600;
 	font-display: swap;
 	src: url('../fonts/Outfit.woff2') format('woff2');
 }
 
 html, body { margin: 0; }
+
+/* scrollbar-color inherits to every scroller; scrollbar-width does not.
+   Thumb shows only while scrolling (theme.js holds is-scrolling on <html>);
+   the transition fades it where scrollbar-color is animatable, snaps elsewhere. */
+html {
+	scrollbar-width: thin;
+	scrollbar-color: transparent transparent;
+	transition: scrollbar-color 0.25s ease;
+}
+html.is-scrolling {
+	scrollbar-color: var(--scroll-thumb) transparent;
+}
 
 body {
 	min-height: 100vh;
@@ -26,6 +38,11 @@ button {
 	cursor: pointer;
 }
 
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
 /* Inline <symbol> sprite host: defines icons, never renders itself. */
 .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
@@ -39,8 +56,15 @@ button {
 	stroke-linejoin: round;
 }
 
+/* theme.js holds this class on <html> during a theme switch so the palette cross-fades */
+html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after {
+	transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease,
+		box-shadow 0.35s ease, fill 0.35s ease, stroke 0.35s ease !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-	*, *::before, *::after {
+	*, *::before, *::after,
+	html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after {
 		animation-duration: 0.001ms !important;
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.001ms !important;
