@@ -48,17 +48,13 @@ Decision evaluate(const Request& req, const config::Settings& settings) {
 
 	const Scheme eff = effectiveScheme(req, settings.trustedProxy);
 	const std::string host = hostOnly(req.host);
-	const bool canonicalActive = settings.httpToHttpsRedirect || settings.trustedProxy;
+	const bool canonicalActive = settings.https || settings.trustedProxy;
 
-	// Upgrade a plaintext request only when an HTTPS endpoint is actually served.
+	// HTTPS on means plaintext is never served: always redirect it to HTTPS.
 	if (settings.https && eff == Scheme::Http) {
-		if (settings.httpToHttpsRedirect) {
-			const std::string& h =
-			    settings.canonicalDomain.empty() ? host : settings.canonicalDomain;
-			return { Action::Redirect, "https://" + h + req.target };
-		}
-		if (settings.requireHttps)
-			return { Action::Reject, {} };
+		const std::string& h =
+		    settings.canonicalDomain.empty() ? host : settings.canonicalDomain;
+		return { Action::Redirect, "https://" + h + req.target };
 	}
 
 	// Pin a mismatched Host to the canonical host once the scheme is acceptable.

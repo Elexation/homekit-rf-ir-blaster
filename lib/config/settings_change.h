@@ -12,9 +12,7 @@ inline ApplyKind classifyChange(const Settings& oldS, const Settings& newS) {
 	if (oldS.https               != newS.https ||
 	    oldS.listenPort          != newS.listenPort ||
 	    oldS.trustedProxy        != newS.trustedProxy ||
-	    oldS.canonicalDomain     != newS.canonicalDomain ||
-	    oldS.httpToHttpsRedirect != newS.httpToHttpsRedirect ||
-	    oldS.requireHttps        != newS.requireHttps)
+	    oldS.canonicalDomain     != newS.canonicalDomain)
 		return ApplyKind::RequiresRestart;
 	return ApplyKind::Live;
 }

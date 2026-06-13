@@ -11,7 +11,7 @@ std::string sessionCookie(const std::string& token);
 std::string clearSessionCookie();
 std::string csrfCookie(const std::string& token);
 
-// Strict-Transport-Security value; the device sends it only when requireHttps.
+// Strict-Transport-Security value; the device sends it only when https.
 std::string hstsHeader();
 
 // Static response headers set on every config-panel response (the device sets each name/value).

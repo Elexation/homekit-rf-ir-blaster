@@ -18,7 +18,6 @@ enum class ValidateError {
 	BadIrCarrier,
 	BadListenPort,
 	ReservedListenPort,
-	EmptyCanonicalDomain,
 	DomainTooLong,
 	BadCanonicalDomain,
 };

@@ -27,6 +27,10 @@ const SecurityHeader kStaticSecurityHeaders[] = {
 	{"X-Frame-Options", "DENY"},
 	{"Referrer-Policy", "no-referrer"},
 	{"Cache-Control", "no-store"},
+	// default-src 'self' bans inline script/style; the UI is authored to satisfy it
+	{"Content-Security-Policy",
+	 "default-src 'self'; frame-ancestors 'none'; form-action 'self'; "
+	 "base-uri 'none'; object-src 'none'"},
 };
 const size_t kStaticSecurityHeaderCount =
 	sizeof(kStaticSecurityHeaders) / sizeof(kStaticSecurityHeaders[0]);

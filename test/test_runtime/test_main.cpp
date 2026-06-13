@@ -215,7 +215,7 @@ static Request req(Scheme s, const std::string& host, const std::string& target,
 
 // Loopback bypasses every redirect and is always served.
 static void test_policy_loopback_always_serves() {
-	Settings st;  // https + redirect + require all on by default
+	Settings st;  // https on by default
 	Decision d = evaluate(req(Scheme::Http, "127.0.0.1", "/", true), st);
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(Action::Serve), static_cast<int>(d.action));
 }
@@ -250,21 +250,10 @@ static void test_policy_canonical_host_served() {
 	    static_cast<int>(evaluate(req(Scheme::Https, "BLASTER.local.", "/"), st).action));
 }
 
-// require-HTTPS without the redirect refuses plaintext outright.
-static void test_policy_require_https_rejects_plaintext() {
-	Settings st;
-	st.httpToHttpsRedirect = false;
-	st.requireHttps = true;
-	Decision d = evaluate(req(Scheme::Http, "blaster.local", "/"), st);
-	TEST_ASSERT_EQUAL_INT(static_cast<int>(Action::Reject), static_cast<int>(d.action));
-}
-
-// With HTTPS off and neither redirect nor require, plain HTTP is served (opt-in).
+// With HTTPS off, plain HTTP is served (opt-in).
 static void test_policy_plain_http_allowed() {
 	Settings st;
 	st.https = false;
-	st.httpToHttpsRedirect = false;
-	st.requireHttps = false;
 	st.trustedProxy = false;
 	Decision d = evaluate(req(Scheme::Http, "192.168.1.50", "/"), st);
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(Action::Serve), static_cast<int>(d.action));
@@ -652,7 +641,7 @@ static void test_hsts_header() {
 
 // The static hardening headers carry their exact names and values.
 static void test_static_security_headers() {
-	TEST_ASSERT_EQUAL_UINT(4, kStaticSecurityHeaderCount);
+	TEST_ASSERT_EQUAL_UINT(5, kStaticSecurityHeaderCount);
 	TEST_ASSERT_EQUAL_STRING("X-Content-Type-Options", kStaticSecurityHeaders[0].name);
 	TEST_ASSERT_EQUAL_STRING("nosniff", kStaticSecurityHeaders[0].value);
 	TEST_ASSERT_EQUAL_STRING("X-Frame-Options", kStaticSecurityHeaders[1].name);
@@ -661,6 +650,11 @@ static void test_static_security_headers() {
 	TEST_ASSERT_EQUAL_STRING("no-referrer", kStaticSecurityHeaders[2].value);
 	TEST_ASSERT_EQUAL_STRING("Cache-Control", kStaticSecurityHeaders[3].name);
 	TEST_ASSERT_EQUAL_STRING("no-store", kStaticSecurityHeaders[3].value);
+	TEST_ASSERT_EQUAL_STRING("Content-Security-Policy", kStaticSecurityHeaders[4].name);
+	TEST_ASSERT_EQUAL_STRING(
+		"default-src 'self'; frame-ancestors 'none'; form-action 'self'; "
+		"base-uri 'none'; object-src 'none'",
+		kStaticSecurityHeaders[4].value);
 }
 
 // --- first-boot setup (auth core) ---
@@ -731,7 +725,6 @@ int main(int, char**) {
 	RUN_TEST(test_policy_http_upgrades_to_https);
 	RUN_TEST(test_policy_canonical_host_redirect);
 	RUN_TEST(test_policy_canonical_host_served);
-	RUN_TEST(test_policy_require_https_rejects_plaintext);
 	RUN_TEST(test_policy_plain_http_allowed);
 	RUN_TEST(test_policy_trusted_forwarded_proto_https_serves);
 	RUN_TEST(test_policy_untrusted_forwarded_proto_ignored);

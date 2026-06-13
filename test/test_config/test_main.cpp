@@ -81,10 +81,6 @@ static void assertConfigEqual(const Config& a, const Config& b) {
 	                      static_cast<int>(b.settings.trustedProxy));
 	TEST_ASSERT_EQUAL_STRING(a.settings.canonicalDomain.c_str(),
 	                         b.settings.canonicalDomain.c_str());
-	TEST_ASSERT_EQUAL_INT(static_cast<int>(a.settings.httpToHttpsRedirect),
-	                      static_cast<int>(b.settings.httpToHttpsRedirect));
-	TEST_ASSERT_EQUAL_INT(static_cast<int>(a.settings.requireHttps),
-	                      static_cast<int>(b.settings.requireHttps));
 	TEST_ASSERT_EQUAL_UINT16(a.nextDeviceId, b.nextDeviceId);
 	TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(a.devices.size()),
 	                         static_cast<uint32_t>(b.devices.size()));
@@ -466,16 +462,18 @@ static void test_listen_port_80_allowed() {
 	                      static_cast<int>(validate(cfg)));
 }
 
-// An empty domain is rejected only when redirect/proxy actually use it.
-static void test_empty_domain_required_vs_unused() {
+// An empty domain is always allowed: it is optional and means "no canonical host".
+static void test_empty_domain_allowed() {
 	Config cfg = sampleConfig();
 	cfg.settings.canonicalDomain = "";
+
+	cfg.settings.https = true;
 	cfg.settings.trustedProxy = true;
-	cfg.settings.httpToHttpsRedirect = false;
-	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::EmptyCanonicalDomain),
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
 	                      static_cast<int>(validate(cfg)));
 
-	cfg.settings.trustedProxy = false;  // neither flag set: empty domain allowed
+	cfg.settings.https = false;
+	cfg.settings.trustedProxy = false;
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
 	                      static_cast<int>(validate(cfg)));
 }
@@ -535,7 +533,7 @@ static void test_classify_identical_is_live() {
 	TEST_ASSERT_FALSE(requiresRestart(a, b));
 }
 
-// Each of the six Settings fields, changed alone, requires a restart.
+// Each of the four Settings fields, changed alone, requires a restart.
 static void test_classify_each_field_requires_restart() {
 	Settings base;
 
@@ -552,12 +550,6 @@ static void test_classify_each_field_requires_restart() {
 
 	Settings tp = base; tp.trustedProxy = !base.trustedProxy;
 	TEST_ASSERT_TRUE(requiresRestart(base, tp));
-
-	Settings rd = base; rd.httpToHttpsRedirect = !base.httpToHttpsRedirect;
-	TEST_ASSERT_TRUE(requiresRestart(base, rd));
-
-	Settings rq = base; rq.requireHttps = !base.requireHttps;
-	TEST_ASSERT_TRUE(requiresRestart(base, rq));
 }
 
 int main(int, char**) {
@@ -583,7 +575,7 @@ int main(int, char**) {
 	RUN_TEST(test_diff_identical_plans_empty);
 	RUN_TEST(test_listen_port_reserved_rejected);
 	RUN_TEST(test_listen_port_80_allowed);
-	RUN_TEST(test_empty_domain_required_vs_unused);
+	RUN_TEST(test_empty_domain_allowed);
 	RUN_TEST(test_valid_domains_accepted);
 	RUN_TEST(test_bad_domains_rejected);
 	RUN_TEST(test_domain_too_long_rejected);

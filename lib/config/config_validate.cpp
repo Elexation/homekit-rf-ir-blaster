@@ -58,11 +58,11 @@ ValidateError validate(const Config& cfg) {
 	    cfg.settings.listenPort == HAP_PORT)
 		return ValidateError::ReservedListenPort;
 
-	// canonicalDomain only matters when it is used to build an origin.
-	if (cfg.settings.httpToHttpsRedirect || cfg.settings.trustedProxy) {
-		const std::string& domain = cfg.settings.canonicalDomain;
-		if (domain.empty())
-			return ValidateError::EmptyCanonicalDomain;
+	// canonicalDomain is optional: empty means no canonical host, so the device
+	// serves on whatever address it was reached at. A set value must be a valid
+	// host/IP so a redirect origin can be built from it.
+	const std::string& domain = cfg.settings.canonicalDomain;
+	if (!domain.empty()) {
 		if (domain.size() > MAX_DOMAIN_LEN)
 			return ValidateError::DomainTooLong;
 		if (!isValidHostOrIp(domain))

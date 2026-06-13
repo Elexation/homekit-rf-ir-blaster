@@ -86,9 +86,7 @@ struct Settings {
 	bool        https               = true;
 	uint16_t    listenPort          = 443;
 	bool        trustedProxy        = false;
-	std::string canonicalDomain     = "blaster.local";
-	bool        httpToHttpsRedirect = true;
-	bool        requireHttps        = true;
+	std::string canonicalDomain     = "";  // optional; empty serves on any host
 };
 
 struct Config {
