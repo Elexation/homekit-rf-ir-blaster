@@ -1,0 +1,68 @@
+/* Settings page layout. */
+
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: 22px;
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: 30px 34px;
+}
+
+.page__header { display: flex; align-items: center; gap: 14px; }
+.page__title { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.page__meta { margin-top: 2px; font-size: 13.5px; color: var(--sub); }
+.page__grow { flex: 1; min-width: 0; }
+.page__back { padding: 9px 12px; color: var(--sub); text-decoration: none; }
+
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.set-side { display: flex; flex-direction: column; gap: 16px; }
+
+.sec { padding: 20px 24px; }
+.sec__head { display: flex; align-items: center; gap: 11px; margin-bottom: 6px; }
+.sec__title { font-size: 16px; font-weight: 600; }
+.sec__lead { margin: 0 0 6px; font-size: 13.5px; line-height: 1.5; color: var(--sub); }
+
+.badge--sm { width: 34px; height: 34px; border-radius: 11px; }
+
+.set-field { display: flex; flex-direction: column; gap: 6px; padding: 13px 0; }
+.set-field[hidden] { display: none; }
+.set-field + .set-field { border-top: 1px solid var(--line); }
+
+.set-save { margin-top: 16px; }
+
+/* Backup & restore */
+.bk-lead { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--sub); }
+.bk-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.bk-actions .btn { margin: 0; }
+.bk-file { cursor: pointer; }
+.bk-input-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	border: 0;
+}
+.bk-result:empty { display: none; }
+.bk-result {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 14px;
+	padding: 16px 18px;
+	border-radius: var(--r-inner);
+	background: var(--surface-alt);
+}
+.bk-result__title { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.bk-result__title.is-bad { color: var(--accent); }
+.bk-issues { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.bk-issues li { font-size: 13px; color: var(--sub); }
+
+@media (max-width: 860px) {
+	.page { padding: 20px; gap: 16px; }
+	.page__header { flex-wrap: wrap; }
+	.set-grid { grid-template-columns: 1fr; }
+}
