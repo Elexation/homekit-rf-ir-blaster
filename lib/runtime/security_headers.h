@@ -5,16 +5,21 @@
 
 namespace runtime {
 
-// Set-Cookie values; the device sets the "Set-Cookie" field name and these build the value.
-// The __Host- prefix requires Secure + Path=/ + no Domain (RFC 6265bis).
-std::string sessionCookie(const std::string& token);
-std::string clearSessionCookie();
-std::string csrfCookie(const std::string& token);
+// Build a Set-Cookie value. secure=true uses the __Host- prefix + Secure (RFC 6265bis:
+// requires Secure + Path=/ + no Domain); secure=false drops both for plain HTTP, keeping
+// HttpOnly + SameSite=Strict + Path=/. The prefix and Secure always move together.
+std::string sessionCookie(const std::string& token, bool secure);
+std::string clearSessionCookie(bool secure);
+std::string csrfCookie(const std::string& token, bool secure);
+
+// Cookie names matching the flavor above; the read side selects by the serving scheme.
+const char* sessionCookieName(bool secure);
+const char* csrfCookieName(bool secure);
 
 // Strict-Transport-Security value; the device sends it only when https.
 std::string hstsHeader();
 
-// Static response headers set on every config-panel response (the device sets each name/value).
+// Static response headers for every config-panel response.
 struct SecurityHeader {
 	const char* name;
 	const char* value;

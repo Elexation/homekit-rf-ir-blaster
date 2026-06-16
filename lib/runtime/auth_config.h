@@ -16,4 +16,9 @@ constexpr uint64_t kAbsoluteTimeoutMs = 28800000ull;  // 8 hours
 constexpr char kSessionCookieName[] = "__Host-SID";
 constexpr char kCsrfCookieName[]    = "__Host-CSRF";
 
+// Plain-HTTP flavor: the __Host- prefix mandates Secure, which a browser drops over HTTP,
+// so plain mode (safe mode, https off) uses these unprefixed names with no Secure attribute.
+constexpr char kSessionCookieNamePlain[] = "SID";
+constexpr char kCsrfCookieNamePlain[]    = "CSRF";
+
 }  // namespace runtime

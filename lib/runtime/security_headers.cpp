@@ -4,18 +4,31 @@
 
 namespace runtime {
 
-static const char kCookieAttrs[] = "; Secure; HttpOnly; SameSite=Strict; Path=/";
+static const char kSecureAttrs[] = "; Secure; HttpOnly; SameSite=Strict; Path=/";
+static const char kPlainAttrs[]  = "; HttpOnly; SameSite=Strict; Path=/";
 
-std::string sessionCookie(const std::string& token) {
-	return std::string(kSessionCookieName) + "=" + token + kCookieAttrs;
+const char* sessionCookieName(bool secure) {
+	return secure ? kSessionCookieName : kSessionCookieNamePlain;
 }
 
-std::string clearSessionCookie() {
-	return std::string(kSessionCookieName) + "=" + kCookieAttrs + "; Max-Age=0";
+const char* csrfCookieName(bool secure) {
+	return secure ? kCsrfCookieName : kCsrfCookieNamePlain;
 }
 
-std::string csrfCookie(const std::string& token) {
-	return std::string(kCsrfCookieName) + "=" + token + kCookieAttrs;
+static const char* cookieAttrs(bool secure) {
+	return secure ? kSecureAttrs : kPlainAttrs;
+}
+
+std::string sessionCookie(const std::string& token, bool secure) {
+	return std::string(sessionCookieName(secure)) + "=" + token + cookieAttrs(secure);
+}
+
+std::string clearSessionCookie(bool secure) {
+	return std::string(sessionCookieName(secure)) + "=" + cookieAttrs(secure) + "; Max-Age=0";
+}
+
+std::string csrfCookie(const std::string& token, bool secure) {
+	return std::string(csrfCookieName(secure)) + "=" + token + cookieAttrs(secure);
 }
 
 std::string hstsHeader() {

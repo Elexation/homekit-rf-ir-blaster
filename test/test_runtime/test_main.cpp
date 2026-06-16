@@ -617,21 +617,42 @@ static void test_csrf_tampered_and_malformed() {
 
 // --- security headers (auth core) ---
 
-// The session cookie carries the __Host- prefix and the full hardening attribute set.
+// The secure session cookie carries the __Host- prefix and the full hardening attribute set.
 static void test_session_cookie_format() {
 	TEST_ASSERT_EQUAL_STRING(
 		"__Host-SID=tok123; Secure; HttpOnly; SameSite=Strict; Path=/",
-		sessionCookie("tok123").c_str());
+		sessionCookie("tok123", true).c_str());
 	TEST_ASSERT_EQUAL_STRING(
 		"__Host-SID=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
-		clearSessionCookie().c_str());
+		clearSessionCookie(true).c_str());
 }
 
-// The CSRF cookie mirrors those attributes under its own name.
+// Plain-HTTP flavor: no __Host- prefix and no Secure (else the browser drops it over HTTP).
+static void test_session_cookie_plain_format() {
+	TEST_ASSERT_EQUAL_STRING(
+		"SID=tok123; HttpOnly; SameSite=Strict; Path=/",
+		sessionCookie("tok123", false).c_str());
+	TEST_ASSERT_EQUAL_STRING(
+		"SID=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+		clearSessionCookie(false).c_str());
+}
+
+// The CSRF cookie mirrors those attributes under its own name, in both flavors.
 static void test_csrf_cookie_format() {
 	TEST_ASSERT_EQUAL_STRING(
 		"__Host-CSRF=abc.def; Secure; HttpOnly; SameSite=Strict; Path=/",
-		csrfCookie("abc.def").c_str());
+		csrfCookie("abc.def", true).c_str());
+	TEST_ASSERT_EQUAL_STRING(
+		"CSRF=abc.def; HttpOnly; SameSite=Strict; Path=/",
+		csrfCookie("abc.def", false).c_str());
+}
+
+// The name selector tracks the flavor so the read side looks up the right cookie.
+static void test_cookie_name_selector() {
+	TEST_ASSERT_EQUAL_STRING("__Host-SID", sessionCookieName(true));
+	TEST_ASSERT_EQUAL_STRING("SID", sessionCookieName(false));
+	TEST_ASSERT_EQUAL_STRING("__Host-CSRF", csrfCookieName(true));
+	TEST_ASSERT_EQUAL_STRING("CSRF", csrfCookieName(false));
 }
 
 // HSTS pins one year, no includeSubDomains or preload.
@@ -754,7 +775,9 @@ int main(int, char**) {
 	RUN_TEST(test_csrf_wrong_secret);
 	RUN_TEST(test_csrf_tampered_and_malformed);
 	RUN_TEST(test_session_cookie_format);
+	RUN_TEST(test_session_cookie_plain_format);
 	RUN_TEST(test_csrf_cookie_format);
+	RUN_TEST(test_cookie_name_selector);
 	RUN_TEST(test_hsts_header);
 	RUN_TEST(test_static_security_headers);
 	RUN_TEST(test_setup_current_mode);
