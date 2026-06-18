@@ -45,6 +45,9 @@
 		document.querySelector('[data-domain-field]').hidden = !domain;
 		document.getElementById('set-domain').value = domain;
 
+		// absent defaults to on; only explicit false turns it off
+		setToggle(document.querySelector('[data-toggle="ledEnabled"]'), cfg.settings.ledEnabled !== false);
+
 		['ip', 'setupCode', 'pairing'].forEach(function (f) {
 			document.querySelector('[data-field="' + f + '"]').textContent = status[f];
 		});
@@ -113,7 +116,8 @@
 				https: toggleState('https'),
 				listenPort: v.port,
 				trustedProxy: toggleState('trustedProxy'),
-				canonicalDomain: v.domain
+				canonicalDomain: v.domain,
+				ledEnabled: toggleState('ledEnabled')  // carry it so a restart save doesn't reset it
 			};
 			Data.saveSettings(settings, state.rev).then(function (res) {
 				if (res.conflict) {
@@ -125,6 +129,28 @@
 				state.config.settings = settings;
 				UI.toast('Saved. The device restarts to apply.');
 			});
+		});
+	}
+
+	// Built from last-saved settings, not the form, so it doesn't pick up unsaved network edits.
+	function saveLed(on) {
+		var s = state.config.settings;
+		var settings = {
+			https: s.https,
+			listenPort: s.listenPort,
+			trustedProxy: s.trustedProxy,
+			canonicalDomain: s.canonicalDomain,
+			ledEnabled: on
+		};
+		Data.saveSettings(settings, state.rev).then(function (res) {
+			if (res.conflict) {
+				UI.toast('Settings changed in another tab. Reloading…');
+				setTimeout(function () { location.reload(); }, 1200);
+				return;
+			}
+			state.rev = res.rev;
+			state.config.settings = settings;
+			UI.toast(on ? 'Status light on.' : 'Status light off.');
 		});
 	}
 
@@ -266,9 +292,12 @@
 			btn.addEventListener('click', function () {
 				var on = btn.getAttribute('aria-checked') !== 'true';
 				setToggle(btn, on);
-				if (btn.getAttribute('data-toggle') === 'useDomain') {
+				var name = btn.getAttribute('data-toggle');
+				if (name === 'useDomain') {
 					document.querySelector('[data-domain-field]').hidden = !on;
 					if (on) document.getElementById('set-domain').focus();
+				} else if (name === 'ledEnabled') {
+					saveLed(on);
 				}
 			});
 		});

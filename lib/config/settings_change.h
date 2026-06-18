@@ -4,8 +4,7 @@
 
 namespace config {
 
-// Every Settings field is a network binding read at startup, so any change needs a
-// restart. Naming this seam makes a future live-applicable field a one-line change.
+// Network bindings are read at startup, so changing one needs a restart; ledEnabled applies live.
 enum class ApplyKind { Live, RequiresRestart };
 
 inline ApplyKind classifyChange(const Settings& oldS, const Settings& newS) {

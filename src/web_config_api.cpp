@@ -22,18 +22,17 @@
 #include "config_validate.h"
 #include "nvs_blob_store.h"
 #include "settings_change.h"
+#include "ui.h"
 #include "web_auth.h"
 
 namespace web {
 
 namespace {
 
-// Whole-config write body ceiling: the config payload (MAX_CONFIG_BYTES) plus a
-// little slack. rev rides in the query string, not the body.
+// Config payload ceiling plus slack; rev rides in the query string, not the body.
 constexpr size_t kMaxBody = config::MAX_CONFIG_BYTES + 2048;
 
-// HomeSpan stores only the SRP verifier, never the plaintext setup code; show a
-// placeholder until the onboarding wizard (later slice) persists a chosen code.
+// HomeSpan stores only the SRP verifier, not the plaintext setup code; show a placeholder.
 constexpr char kSetupCodePlaceholder[] = "Not available";
 
 config::Config        g_config;          // authoritative copy; touched only on the httpd task
@@ -202,7 +201,7 @@ esp_err_t handleFactoryReset(httpd_req_t* req) {
 	return res;
 }
 
-// Capture needs the radios, wired in a later slice; degrade cleanly until then.
+// Capture needs the radios (not yet wired); degrade cleanly.
 esp_err_t handleLearnStart(httpd_req_t* req) {
 	esp_err_t err;
 	if (!requireSession(req, err))
@@ -261,6 +260,7 @@ void pollConfigApply() {
 	switch (action) {
 		case Pending::Apply:
 			applyConfigChange(cfg);
+			setLedEnabled(cfg.settings.ledEnabled);  // live display pref; no restart needed
 			break;
 		case Pending::Restart:
 			delay(150);  // let the HTTP response flush before the socket drops

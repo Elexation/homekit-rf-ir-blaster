@@ -21,6 +21,7 @@ bool toJson(const Config& cfg, std::string& out) {
 	s["listenPort"]          = cfg.settings.listenPort;
 	s["trustedProxy"]        = cfg.settings.trustedProxy;
 	s["canonicalDomain"]     = cfg.settings.canonicalDomain;
+	s["ledEnabled"]          = cfg.settings.ledEnabled;
 
 	doc["nextDeviceId"] = cfg.nextDeviceId;
 
@@ -82,6 +83,7 @@ bool fromJson(const char* data, size_t len, Config& out) {
 	out.settings.listenPort          = s["listenPort"]          | out.settings.listenPort;
 	out.settings.trustedProxy        = s["trustedProxy"]        | out.settings.trustedProxy;
 	readStr(s["canonicalDomain"], out.settings.canonicalDomain);
+	out.settings.ledEnabled          = s["ledEnabled"]          | out.settings.ledEnabled;
 
 	out.nextDeviceId = doc["nextDeviceId"] | out.nextDeviceId;
 

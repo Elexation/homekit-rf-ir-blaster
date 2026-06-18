@@ -39,6 +39,7 @@ static Config sampleConfig() {
 	cfg.settings.listenPort = 8443;
 	cfg.settings.trustedProxy = true;
 	cfg.settings.canonicalDomain = "blaster.local";
+	cfg.settings.ledEnabled = false;  // non-default so the round-trip exercises it
 	cfg.nextDeviceId = 4;
 
 	VirtualDevice screen;
@@ -81,6 +82,8 @@ static void assertConfigEqual(const Config& a, const Config& b) {
 	                      static_cast<int>(b.settings.trustedProxy));
 	TEST_ASSERT_EQUAL_STRING(a.settings.canonicalDomain.c_str(),
 	                         b.settings.canonicalDomain.c_str());
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(a.settings.ledEnabled),
+	                      static_cast<int>(b.settings.ledEnabled));
 	TEST_ASSERT_EQUAL_UINT16(a.nextDeviceId, b.nextDeviceId);
 	TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(a.devices.size()),
 	                         static_cast<uint32_t>(b.devices.size()));
@@ -552,6 +555,15 @@ static void test_classify_each_field_requires_restart() {
 	TEST_ASSERT_TRUE(requiresRestart(base, tp));
 }
 
+// A ledEnabled-only change is Live, not a restart.
+static void test_classify_led_only_is_live() {
+	Settings base;
+	Settings led = base; led.ledEnabled = !base.ledEnabled;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ApplyKind::Live),
+	                      static_cast<int>(classifyChange(base, led)));
+	TEST_ASSERT_FALSE(requiresRestart(base, led));
+}
+
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip_save_load);
@@ -581,5 +593,6 @@ int main(int, char**) {
 	RUN_TEST(test_domain_too_long_rejected);
 	RUN_TEST(test_classify_identical_is_live);
 	RUN_TEST(test_classify_each_field_requires_restart);
+	RUN_TEST(test_classify_led_only_is_live);
 	return UNITY_END();
 }

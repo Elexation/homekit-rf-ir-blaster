@@ -11,7 +11,7 @@ window.BlasterData = (function () {
 	// Merge base before the first server read.
 	var DEFAULTS = {
 		schemaVersion: SCHEMA_VERSION,
-		settings: { https: true, listenPort: 443, trustedProxy: false, canonicalDomain: '' },
+		settings: { https: true, listenPort: 443, trustedProxy: false, canonicalDomain: '', ledEnabled: true },
 		nextDeviceId: 2,
 		devices: []
 	};
