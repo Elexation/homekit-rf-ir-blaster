@@ -4,6 +4,7 @@
 #include "ir.h"
 #include "ui.h"
 #include "accessory_builder.h"
+#include "recovery.h"
 #include "web_server.h"
 #include "web_config_api.h"
 
@@ -29,13 +30,21 @@ void setup() {
 	config::DecodeResult res = config::load(store);
 	Serial.printf("config: status=%d usedDefaults=%d devices=%u\n",
 	              (int)res.status, res.usedDefaults, (unsigned)res.config.devices.size());
-	web::begin(res.config.settings);  // stash settings before the WiFi callback can fire
-	web::configApiBegin(res.config);  // seed the config API (own NVS store + rev) before the server starts
+
+	// Recovery overrides a COPY of settings in safe mode; the config API still gets the real ones.
+	config::Settings effective = res.config.settings;
+	recovery::begin(effective);
+
+	setLedEnabled(res.config.settings.ledEnabled);  // not a network setting, so use the real value, not the safe-mode copy
+
+	web::begin(effective);            // stash settings before the WiFi callback can fire
+	web::configApiBegin(res.config);  // seed the config API before the server starts
 	buildAccessories(res.config);
 }
 
 void loop() {
 	homeSpan.poll();
 	web::pollConfigApply();  // apply queued live config changes / restart on the HomeSpan task
+	recovery::poll();
 	updateUI();
 }

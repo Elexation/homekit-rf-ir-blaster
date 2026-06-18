@@ -76,7 +76,7 @@ struct DeviceOptions {
 struct VirtualDevice {
 	uint16_t                 id = 0;
 	std::string              service;  // HomeKit service, e.g. "WindowCovering"
-	std::string              name;     // display name
+	std::string              name;
 	DeviceOptions            options;
 	std::vector<CommandSlot> commands;
 };
@@ -86,7 +86,8 @@ struct Settings {
 	bool        https               = true;
 	uint16_t    listenPort          = 443;
 	bool        trustedProxy        = false;
-	std::string canonicalDomain     = "";  // optional; empty serves on any host
+	std::string canonicalDomain     = "";    // optional; empty serves on any host
+	bool        ledEnabled          = true;  // status LED in normal use; recovery/setup always show
 };
 
 struct Config {
