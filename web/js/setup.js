@@ -63,7 +63,7 @@
 			}
 			submitBtn.disabled = false;
 			showError(nonceEl, nonceErr, res.error === 'nonce'
-				? 'That code doesn’t match. Check the serial console output.'
+				? 'That code doesn’t match. Re-check the web setup code from setup.'
 				: 'Setup failed. Try again.');
 		});
 	});

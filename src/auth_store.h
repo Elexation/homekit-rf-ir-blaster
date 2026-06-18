@@ -6,8 +6,8 @@
 
 namespace runtime {
 
-// NVS persistence for the two secrets Config excludes: the PBKDF2 password record
-// and the one-time setup nonce. Own namespace; device-only.
+// NVS for the device-local values Config excludes: PBKDF2 password record, setup
+// nonce, plaintext pairing code. Own namespace.
 class AuthStore {
 public:
 	AuthStore();
@@ -23,7 +23,12 @@ public:
 	bool setNonce(const std::string& nonce);
 	void clearNonce();
 
-	void eraseAll();  // factory reset: drop credential + nonce together
+	// Plaintext pairing code, device-local so the config UI can show it (HomeSpan
+	// keeps only the SRP verifier).
+	bool getSetupCode(std::string& out);  // false if absent; out untouched
+	bool setSetupCode(const std::string& code);
+
+	void eraseAll();  // factory reset: drop credential + nonce + setup code together
 
 private:
 	nvs_handle_t handle_ = 0;

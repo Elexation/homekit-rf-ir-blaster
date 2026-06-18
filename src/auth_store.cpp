@@ -10,6 +10,7 @@ namespace {
 constexpr char NVS_NAMESPACE[] = "rfirauth";  // separate from config's "rfirblaster"
 constexpr char KEY_CRED[]      = "cred";      // PBKDF2 password record
 constexpr char KEY_NONCE[]     = "nonce";     // one-time setup nonce
+constexpr char KEY_CODE[]      = "setupcode"; // plaintext HomeKit pairing code, for display
 
 bool readStr(nvs_handle_t h, const char* key, std::string& out) {
 	size_t len = 0;
@@ -77,11 +78,24 @@ void AuthStore::clearNonce() {
 	nvs_commit(handle_);
 }
 
+bool AuthStore::getSetupCode(std::string& out) {
+	return ok_ && readStr(handle_, KEY_CODE, out);
+}
+
+bool AuthStore::setSetupCode(const std::string& code) {
+	if (!ok_)
+		return false;
+	if (nvs_set_str(handle_, KEY_CODE, code.c_str()) != ESP_OK)
+		return false;
+	return nvs_commit(handle_) == ESP_OK;
+}
+
 void AuthStore::eraseAll() {
 	if (!ok_)
 		return;
 	nvs_erase_key(handle_, KEY_CRED);
 	nvs_erase_key(handle_, KEY_NONCE);
+	nvs_erase_key(handle_, KEY_CODE);
 	nvs_commit(handle_);
 }
 

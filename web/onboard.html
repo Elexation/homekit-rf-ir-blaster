@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set up</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/auth.css">
+<link rel="stylesheet" href="styles/onboard.css">
+<script src="js/theme.js"></script>
+</head>
+<body>
+
+<svg class="icon-sprite" width="0" height="0" aria-hidden="true" focusable="false">
+	<symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z"/></symbol>
+	<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 16a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19" r="0.8" fill="currentColor"/></symbol>
+	<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8.5A8 8 0 1 0 21 14M20 3.5v5h-5"/></symbol>
+	<symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5L19.5 7"/></symbol>
+	<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M21.5 12h-2M4.5 12h-2M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M18.7 18.7l-1.4-1.4M6.7 6.7 5.3 5.3"/></symbol>
+	<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 13.5A8 8 0 0 1 10.5 4 8 8 0 1 0 20 13.5z"/></symbol>
+</svg>
+
+<main class="auth">
+	<button class="pill pill--plain pill--sub auth__theme" data-theme-toggle><svg class="icon" width="15" height="15"><use href="#i-sun" data-theme-icon></use></svg><span data-theme-label>Light</span></button>
+	<section class="card auth-card ob-card">
+		<div class="auth-card__head">
+			<div class="badge badge--lg"><svg class="icon" width="21" height="21"><use href="#i-zap"></use></svg></div>
+			<div>
+				<h1 class="auth-card__title">RF/IR Remote</h1>
+				<div class="auth-card__sub" data-sub>Let’s get your device online.</div>
+			</div>
+		</div>
+
+		<ol class="ob-dots" aria-hidden="true">
+			<li class="ob-dot is-active" data-dot></li>
+			<li class="ob-dot" data-dot></li>
+			<li class="ob-dot" data-dot></li>
+		</ol>
+
+		<form class="auth-form ob-step" data-step="wifi" novalidate>
+			<div class="auth-field">
+				<label class="ctl__label" for="ob-ssid">Wi-Fi network</label>
+				<input class="input" id="ob-ssid" name="ssid" type="text" list="ob-networks" placeholder="Choose or type" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" required>
+				<datalist id="ob-networks"></datalist>
+				<div class="field-error" data-ssid-err hidden></div>
+			</div>
+			<div class="auth-field">
+				<label class="ctl__label" for="ob-pass">Wi-Fi password</label>
+				<input class="input" id="ob-pass" name="password" type="password" autocomplete="off" maxlength="63">
+				<div class="auth-field__hint">Leave blank for an open network.</div>
+				<div class="field-error" data-pass-err hidden></div>
+			</div>
+			<button class="btn btn--primary" type="submit" data-wifi-btn><svg class="icon" width="16" height="16"><use href="#i-wifi"></use></svg>Continue</button>
+			<div class="ob-testing" data-testing hidden><span class="ob-spin" aria-hidden="true"></span>Checking your Wi-Fi. You may briefly reconnect to the setup network.</div>
+		</form>
+
+		<form class="auth-form ob-step" data-step="code" hidden novalidate>
+			<div class="auth-field">
+				<label class="ctl__label" for="ob-code">HomeKit pairing code</label>
+				<input class="input ob-code-input" id="ob-code" name="code" type="text" inputmode="numeric" autocomplete="off" maxlength="8" required>
+				<div class="auth-field__hint">Eight digits. A random code is suggested; you can change it.</div>
+				<div class="field-error" data-code-err hidden></div>
+			</div>
+			<div class="ob-row">
+				<button class="btn btn--ghost" type="button" data-regen><svg class="icon" width="16" height="16"><use href="#i-refresh"></use></svg>New code</button>
+				<button class="btn btn--primary ob-grow" type="submit" data-finish><svg class="icon" width="16" height="16"><use href="#i-check"></use></svg>Finish setup</button>
+			</div>
+		</form>
+
+		<div class="ob-step ob-done" data-step="done" hidden>
+			<div class="ob-qr-box"><div class="ob-qr" data-qr></div></div>
+			<div class="list">
+				<div class="list__row"><span class="list__grow ctl__label">Pairing code</span><span class="ob-mono" data-show-code></span></div>
+				<div class="list__row"><span class="list__grow ctl__label">Web setup code</span><span class="ob-mono" data-show-nonce></span></div>
+				<div class="list__row"><span class="list__grow ctl__label">Set up at</span><span class="ob-mono" data-show-ip></span></div>
+			</div>
+			<p class="auth-card__foot">Scan the QR code to pair. Open the address above to finish setup.</p>
+			<button class="btn btn--primary" type="button" data-reboot><svg class="icon" width="16" height="16"><use href="#i-check"></use></svg>Finish &amp; reconnect</button>
+			<div class="ob-rebooting" data-rebooting hidden>Reconnecting to your Wi-Fi. You can close this page.</div>
+		</div>
+	</section>
+</main>
+
+<script src="js/qrcode.js"></script>
+<script src="js/onboard.js"></script>
+</body>
+</html>

@@ -17,6 +17,7 @@
 #include <string>
 
 #include "accessory_builder.h"
+#include "auth_store.h"
 #include "config_codec.h"
 #include "config_json.h"
 #include "config_validate.h"
@@ -32,12 +33,13 @@ namespace {
 // Config payload ceiling plus slack; rev rides in the query string, not the body.
 constexpr size_t kMaxBody = config::MAX_CONFIG_BYTES + 2048;
 
-// HomeSpan stores only the SRP verifier, not the plaintext setup code; show a placeholder.
+// HomeSpan keeps only the SRP verifier; onboarding stores the plaintext code. Shown until onboarded.
 constexpr char kSetupCodePlaceholder[] = "Not available";
 
 config::Config        g_config;          // authoritative copy; touched only on the httpd task
 uint32_t              g_rev = 1;          // bumped per successful write; RAM-only, resets on reboot
 config::NvsBlobStore* g_store = nullptr;
+std::string           g_setupCode;       // formatted pairing code for /api/status; empty until onboarded
 
 // Handoff to the loop task: writes set a pending action, pollConfigApply drains it.
 enum class Pending { None, Apply, Restart, Factory };
@@ -89,8 +91,7 @@ bool requireSession(httpd_req_t* req, esp_err_t& err) {
 	return false;
 }
 
-// CSRF gate for state-changing calls; token in the X-CSRF-Token header, double-submit
-// cookie sent by the browser.
+// CSRF gate for state-changing calls: token in X-CSRF-Token, double-submit cookie.
 bool requireCsrf(httpd_req_t* req, esp_err_t& err) {
 	if (csrfValid(req, headerValue(req, "X-CSRF-Token")))
 		return true;
@@ -147,14 +148,15 @@ esp_err_t handleGetStatus(httpd_req_t* req) {
 		return err;
 	std::string ip   = WiFi.localIP().toString().c_str();
 	std::string wifi = std::to_string(WiFi.RSSI()) + " dBm";
+	std::string code = g_setupCode.empty() ? kSetupCodePlaceholder : g_setupCode;
 	std::string body = "{\"ip\":\"" + ip + "\",\"wifi\":\"" + wifi + "\",\"setupCode\":\"" +
-	                   kSetupCodePlaceholder + "\",\"pairing\":\"" + pairingText() + "\"}";
+	                   code + "\",\"pairing\":\"" + pairingText() + "\"}";
 	return sendJson(req, "200 OK", body);
 }
 
-// Whole-config write: rev guard, then the host-tested parse/validate/persist pipeline,
-// then a live apply or (if a network setting changed) an atomic persist-then-restart.
-// The httpd task never mutates the HomeSpan database; it enqueues for the loop task.
+// Whole-config write: rev guard, host-tested parse/validate/persist, then live apply or
+// (network-setting change) atomic persist-then-restart. Enqueues for the loop task, never
+// mutates the HAP database on the httpd task.
 esp_err_t handlePostConfig(httpd_req_t* req) {
 	esp_err_t err;
 	if (!requireSession(req, err))
@@ -234,6 +236,12 @@ void configApiBegin(const config::Config& cfg) {
 	g_rev    = 1;
 	g_store  = new config::NvsBlobStore();
 	g_lock   = xSemaphoreCreateMutex();
+
+	// Cache the onboarding-set pairing code once, formatted for display.
+	runtime::AuthStore auth;
+	std::string raw;
+	if (auth.ok() && auth.getSetupCode(raw) && raw.size() == 8)
+		g_setupCode = raw.substr(0, 3) + "-" + raw.substr(3, 2) + "-" + raw.substr(5, 3);
 }
 
 void registerConfigApi(httpd_handle_t server) {

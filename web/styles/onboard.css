@@ -1,0 +1,67 @@
+/* Onboarding wizard: step show/hide, progress dots, pairing QR. */
+
+/* author display (.auth-form / .ob-done) beats the UA [hidden] rule, so hide explicitly */
+.ob-step[hidden] { display: none; }
+
+.ob-dots {
+	display: flex;
+	justify-content: center;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.ob-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: var(--toggle-off);
+	transition: width 0.2s ease, background 0.2s ease;
+}
+.ob-dot.is-active { width: 20px; background: var(--accent); }
+
+.ob-row { display: flex; gap: 10px; }
+.ob-grow { flex: 1; }
+
+.ob-code-input {
+	text-align: center;
+	font-size: 19px;
+	letter-spacing: 0.28em;
+	font-variant-numeric: tabular-nums;
+}
+
+.ob-done { display: flex; flex-direction: column; gap: 16px; }
+
+.ob-qr-box { display: flex; justify-content: center; }
+/* QR stays black-on-white in both themes so it always scans */
+.ob-qr {
+	display: inline-block;
+	padding: 14px;
+	line-height: 0;
+	border-radius: var(--r-inner);
+	background: #fff;
+}
+.ob-qr__svg { display: block; width: 196px; height: 196px; shape-rendering: crispEdges; }
+.ob-qr__bg { fill: #fff; }
+.ob-qr__m { fill: #000; }
+
+.ob-mono {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	font-size: 14px;
+	color: var(--ink);
+}
+.ob-rebooting { text-align: center; font-size: 13px; color: var(--sub); }
+
+.ob-testing { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--sub); }
+.ob-testing[hidden] { display: none; }
+.ob-spin {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 2px solid var(--line);
+	border-top-color: var(--accent);
+	animation: ob-spin 0.7s linear infinite;
+}
+@keyframes ob-spin { to { transform: rotate(360deg); } }

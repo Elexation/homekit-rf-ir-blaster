@@ -4,6 +4,7 @@
 #include "ir.h"
 #include "ui.h"
 #include "accessory_builder.h"
+#include "onboarding.h"
 #include "recovery.h"
 #include "web_server.h"
 #include "web_config_api.h"
@@ -16,6 +17,8 @@ void setup() {
 	Serial.begin(115200);
 
 	homeSpan.setPortNum(config::HAP_PORT);  // move HAP off 80/443 for the config server
+	homeSpan.setQRID(onboarding::kQrSetupId);    // advertised Setup ID must match the wizard's QR
+	homeSpan.setApFunction(onboarding::run);     // replace the built-in AP with the onboarding portal
 	homeSpan.enableAutoStartAP();
 	homeSpan.enableWatchdog(60);
 	homeSpan.setConnectionCallback(web::start);  // start the config server on WiFi connect (runs once)
