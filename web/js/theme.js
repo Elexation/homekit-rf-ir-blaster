@@ -1,10 +1,7 @@
 (function () {
-	try {
-		var saved = localStorage.getItem('blaster-theme');
-		if (saved === 'dark' || saved === 'light') {
-			document.documentElement.setAttribute('data-theme', saved);
-		}
-	} catch (e) {}
+	var saved = null;
+	try { saved = localStorage.getItem('blaster-theme'); } catch (e) {}
+	document.documentElement.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
 })();
 
 (function () {
