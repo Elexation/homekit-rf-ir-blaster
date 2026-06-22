@@ -181,6 +181,45 @@ window.BlasterUI = (function () {
 		});
 	}
 
+	// "Restarting…" overlay. mode 'reconnect' polls until the device reboots, then goes to login;
+	// otherwise just shows the message.
+	function restarting(opts) {
+		opts = opts || {};
+		var scrim = document.createElement('div');
+		scrim.className = 'modal-scrim';
+		scrim.innerHTML = '<div class="modal modal--restart" role="alertdialog" aria-modal="true" aria-label="Restarting">' +
+			'<div class="restart-spin" aria-hidden="true"></div>' +
+			'<div class="restart-title">' + escapeHtml(opts.title || 'Restarting…') + '</div>' +
+			(opts.message ? '<p class="modal__text">' + escapeHtml(opts.message) + '</p>' : '') +
+			'<div class="restart-extra" hidden></div>' +
+			'</div>';
+		document.body.appendChild(scrim);
+		void scrim.offsetWidth;
+		scrim.classList.add('is-open');
+		if (opts.mode !== 'reconnect') return;
+
+		var extra = scrim.querySelector('.restart-extra');
+		var tries = 0, MAX = 50;  // ~60 s at 1.2 s cadence
+		function again() {
+			if (++tries >= MAX) {
+				extra.hidden = false;
+				extra.innerHTML = 'Taking longer than expected. <a href="login.html">Reload</a>';
+				return;
+			}
+			setTimeout(loop, 1200);
+		}
+		// Session secret is per-boot, so after a reboot our cookie fails: 401 = back, 200 = not yet, error = down.
+		function loop() {
+			fetch('/api/status', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+				.then(function (r) {
+					if (r.status === 401) { location.href = 'login.html'; return; }
+					again();
+				})
+				.catch(again);
+		}
+		setTimeout(loop, 800);  // let the response flush and the reboot begin first
+	}
+
 	// Themed dropdown; items = [{value,label,icon}], onChange(value) on select.
 	function buildDropdown(root, items, value, id, onChange) {
 		function find(v) {
@@ -283,6 +322,7 @@ window.BlasterUI = (function () {
 		deviceProtos: deviceProtos,
 		setActiveNav: setActiveNav,
 		toast: toast,
-		confirmDialog: confirmDialog
+		confirmDialog: confirmDialog,
+		restarting: restarting
 	};
 })();

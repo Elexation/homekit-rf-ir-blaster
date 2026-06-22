@@ -28,8 +28,7 @@ public:
 	bool getSetupCode(std::string& out);  // false if absent; out untouched
 	bool setSetupCode(const std::string& code);
 
-	// Plaintext OTA password, device-local so the config UI can show it for out-of-band
-	// provisioning; HomeSpan keeps only its SHA256 hash.
+	// Plaintext OTA password (HomeSpan stores only the hash) so the config UI can show it.
 	bool getOtaPassword(std::string& out);  // false if absent; out untouched
 	bool setOtaPassword(const std::string& pw);
 
@@ -40,7 +39,7 @@ private:
 	bool         ok_     = false;
 };
 
-// 128-bit random hex (32 chars, within HomeSpan's 32-char OTA password limit).
+// 128-bit random as 32 hex chars (HomeSpan caps the OTA password at 32).
 std::string makeOtaPassword();
 
 }  // namespace runtime

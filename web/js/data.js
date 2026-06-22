@@ -164,6 +164,8 @@ window.BlasterData = (function () {
 
 		factoryReset: function () { return postCsrf('/api/factory-reset'); },
 
+		regenOtaPassword: function () { return postCsrf('/api/ota-password/regenerate'); },
+
 		// getCsrf returns the form token (cookie is HttpOnly); login/setup/logout post it back.
 		getCsrf: function () { return csrf(); },
 

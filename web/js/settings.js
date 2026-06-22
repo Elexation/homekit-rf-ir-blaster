@@ -48,7 +48,7 @@
 		// absent defaults to on; only explicit false turns it off
 		setToggle(document.querySelector('[data-toggle="ledEnabled"]'), cfg.settings.ledEnabled !== false);
 
-		['ip', 'setupCode', 'pairing'].forEach(function (f) {
+		['ip', 'setupCode', 'pairing', 'otaPassword'].forEach(function (f) {
 			document.querySelector('[data-field="' + f + '"]').textContent = status[f];
 		});
 	}
@@ -127,7 +127,11 @@
 				}
 				state.rev = res.rev;
 				state.config.settings = settings;
-				UI.toast('Saved. The device restarts to apply.');
+				if (res.restart) {
+					UI.restarting({ mode: 'reconnect', message: 'Saving your settings and restarting. This page reconnects automatically.' });
+				} else {
+					UI.toast('Settings saved.');
+				}
 			});
 		});
 	}
@@ -308,6 +312,32 @@
 		document.querySelector('[data-save]').addEventListener('click', save);
 		document.querySelector('[data-export]').addEventListener('click', exportFile);
 		document.getElementById('bk-input').addEventListener('change', onFile);
+		document.querySelector('[data-copy-ota]').addEventListener('click', function () {
+			var pw = document.querySelector('[data-field="otaPassword"]').textContent;
+			if (navigator.clipboard && navigator.clipboard.writeText) {
+				navigator.clipboard.writeText(pw)
+					.then(function () { UI.toast('Password copied.'); })
+					.catch(function () { UI.toast('Copy failed.'); });
+			} else {
+				UI.toast('Copy not supported here.');
+			}
+		});
+		document.querySelector('[data-regen-ota]').addEventListener('click', function () {
+			UI.confirmDialog({
+				title: 'Regenerate OTA password?',
+				message: 'Issues a new upload password and restarts the device. You’ll need to sign in again and update the password in your upload tool.',
+				confirmLabel: 'Regenerate & restart'
+			}).then(function (ok) {
+				if (!ok) return;
+				Data.regenOtaPassword().then(function (res) {
+					if (res && res.ok) {
+						UI.restarting({ mode: 'reconnect', message: 'A new OTA password is being set and the device is restarting. Reconnecting…' });
+					} else {
+						UI.toast('Could not regenerate the password.');
+					}
+				});
+			});
+		});
 		document.querySelector('[data-factory]').addEventListener('click', function () {
 			UI.confirmDialog({
 				title: 'Factory reset?',
@@ -316,9 +346,12 @@
 				danger: true
 			}).then(function (ok) {
 				if (!ok) return;
-				Data.factoryReset().then(function () {
-					UI.toast('Factory reset complete.');
-					setTimeout(function () { location.href = 'dashboard.html'; }, 900);
+				Data.factoryReset().then(function (res) {
+					if (res && res.ok) {
+						UI.restarting({ message: 'Factory reset complete. The device is restarting into setup mode. Reconnect to its “RF-IR Blaster” Wi-Fi network to set it up again.' });
+					} else {
+						UI.toast('Could not factory reset.');
+					}
 				});
 			});
 		});

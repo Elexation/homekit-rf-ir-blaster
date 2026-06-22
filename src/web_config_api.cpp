@@ -41,6 +41,7 @@ config::Config        g_config;          // authoritative copy; touched only on 
 uint32_t              g_rev = 1;          // bumped per successful write; RAM-only, resets on reboot
 config::NvsBlobStore* g_store = nullptr;
 std::string           g_setupCode;       // formatted pairing code for /api/status; empty until onboarded
+std::string           g_otaPassword;     // per-device OTA password for /api/status; set on first boot
 
 // Handoff to the loop task: writes set a pending action, pollConfigApply drains it.
 enum class Pending { None, Apply, Restart, Factory };
@@ -158,7 +159,8 @@ esp_err_t handleGetStatus(httpd_req_t* req) {
 	std::string wifi = std::to_string(WiFi.RSSI()) + " dBm";
 	std::string code = g_setupCode.empty() ? kSetupCodePlaceholder : g_setupCode;
 	std::string body = "{\"ip\":\"" + ip + "\",\"wifi\":\"" + wifi + "\",\"setupCode\":\"" +
-	                   code + "\",\"pairing\":\"" + pairingText() + "\"}";
+	                   code + "\",\"pairing\":\"" + pairingText() + "\",\"otaPassword\":\"" +
+	                   g_otaPassword + "\"}";
 	return sendJson(req, "200 OK", body);
 }
 
@@ -195,6 +197,7 @@ esp_err_t handlePostConfig(httpd_req_t* req) {
 	std::string cfg;
 	config::toJson(g_config, cfg);
 	std::string out = "{\"conflict\":false,\"rev\":" + std::to_string(newRev) +
+	                  ",\"restart\":" + (restart ? "true" : "false") +
 	                  ",\"config\":" + cfg + "}";
 	esp_err_t res = sendJson(req, "200 OK", out);  // flush the response before acting
 	enqueue(restart ? Pending::Restart : Pending::Apply);
@@ -207,6 +210,21 @@ esp_err_t handleFactoryReset(httpd_req_t* req) {
 		return err;
 	esp_err_t res = sendJson(req, "200 OK", "{\"ok\":true}");
 	enqueue(Pending::Factory);
+	return res;
+}
+
+// Reboot after persisting: HomeSpan binds the OTA password once at begin(), so setup() re-arms it.
+esp_err_t handleRegenOtaPassword(httpd_req_t* req) {
+	esp_err_t err;
+	if (!requireSession(req, err) || !requireCsrf(req, err))
+		return err;
+	std::string pw = runtime::makeOtaPassword();
+	runtime::AuthStore auth;
+	if (!auth.ok() || !auth.setOtaPassword(pw))
+		return sendJson(req, "500 Internal Server Error", "{\"ok\":false,\"error\":\"store\"}");
+	g_otaPassword = pw;
+	esp_err_t res = sendJson(req, "200 OK", "{\"ok\":true}");
+	enqueue(Pending::Restart);
 	return res;
 }
 
@@ -296,6 +314,9 @@ void configApiBegin(const config::Config& cfg) {
 	std::string raw;
 	if (auth.ok() && auth.getSetupCode(raw) && raw.size() == 8)
 		g_setupCode = raw.substr(0, 3) + "-" + raw.substr(3, 2) + "-" + raw.substr(5, 3);
+	std::string otapw;
+	if (auth.ok() && auth.getOtaPassword(otapw))
+		g_otaPassword = otapw;
 }
 
 void registerConfigApi(httpd_handle_t server) {
@@ -303,6 +324,7 @@ void registerConfigApi(httpd_handle_t server) {
 	registerUri(server, "/api/status", HTTP_GET, handleGetStatus);
 	registerUri(server, "/api/config", HTTP_POST, handlePostConfig);
 	registerUri(server, "/api/factory-reset", HTTP_POST, handleFactoryReset);
+	registerUri(server, "/api/ota-password/regenerate", HTTP_POST, handleRegenOtaPassword);
 	registerUri(server, "/api/learn/start", HTTP_GET, handleLearnStart);
 	registerUri(server, "/api/learn/poll", HTTP_GET, handleLearnPoll);
 	registerUri(server, "/api/learn/cancel", HTTP_POST, handleLearnCancel);

@@ -24,8 +24,7 @@ void setup() {
 	homeSpan.enableWatchdog(60);
 	homeSpan.setConnectionCallback(web::start);  // start the config server on WiFi connect (runs once)
 
-	// Per-device OTA password, created on first boot.
-	// SafeLoad rejects non-HomeSpan images
+	// Per-device password so OTA never ships HomeSpan's public default; created on first boot.
 	runtime::AuthStore otaStore;
 	std::string otaPw;
 	if (!otaStore.getOtaPassword(otaPw)) {

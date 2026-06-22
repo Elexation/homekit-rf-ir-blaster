@@ -38,6 +38,7 @@
 	<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9 6V4.5h6V6M7 6.5l1 13h8l1-13M10.5 10v6M13.5 10v6"/></symbol>
 	<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></symbol>
 	<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5M5 20h14"/></symbol>
+	<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2"/></symbol>
 </svg>
 
 <main class="page">
@@ -94,6 +95,25 @@
 				<div class="ctl"><div class="ctl__grow"><div class="ctl__label">IP address</div></div><div class="ctl__val" data-field="ip"></div></div>
 				<div class="ctl"><div class="ctl__grow"><div class="ctl__label">HomeKit setup code</div></div><div class="ctl__val" data-field="setupCode"></div></div>
 				<div class="ctl"><div class="ctl__grow"><div class="ctl__label">Pairing</div></div><div class="ctl__val" data-field="pairing"></div></div>
+			</section>
+
+			<section class="card sec">
+				<div class="sec__head">
+					<span class="badge badge--sm is-active"><svg class="icon" width="16" height="16"><use href="#i-key"></use></svg></span>
+					<span class="sec__title">OTA updates</span>
+				</div>
+				<p class="sec__lead">Password for uploading firmware over Wi-Fi. Keep it private.</p>
+				<div class="set-field">
+					<span class="ctl__label">OTA password</span>
+					<div class="ota-pw">
+						<code class="ota-pw__val" data-field="otaPassword"></code>
+						<button class="ota-pw__copy" type="button" data-copy-ota aria-label="Copy OTA password"><svg class="icon" width="16" height="16"><use href="#i-copy"></use></svg></button>
+					</div>
+				</div>
+				<div class="ctl">
+					<div class="ctl__grow"><div class="ctl__label">Regenerate</div><div class="ctl__hint">Issues a new password and restarts the device.</div></div>
+					<button class="btn btn--ghost" data-regen-ota><svg class="icon" width="16" height="16"><use href="#i-refresh"></use></svg>Regenerate</button>
+				</div>
 			</section>
 
 			<section class="card sec">

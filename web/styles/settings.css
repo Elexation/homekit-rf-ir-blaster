@@ -31,6 +31,40 @@
 
 .set-save { margin-top: 16px; }
 
+.ota-pw {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 8px 8px 13px;
+	border-radius: var(--r-inner);
+	background: var(--surface-alt);
+	border: 1px solid var(--line);
+}
+.ota-pw__val {
+	flex: 1;
+	min-width: 0;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 13px;
+	letter-spacing: 0.04em;
+	word-break: break-all;
+	user-select: all;
+}
+.ota-pw__copy {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 9px;
+	border: 0;
+	background: transparent;
+	color: var(--sub);
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+}
+.ota-pw__copy:hover { background: var(--line); color: var(--ink); }
+
 /* Backup & restore */
 .bk-lead { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--sub); }
 .bk-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
