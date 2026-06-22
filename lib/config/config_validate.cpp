@@ -81,6 +81,10 @@ ValidateError validate(const Config& cfg) {
 			return ValidateError::BadService;
 
 		for (const auto& slot : d.commands) {
+			if (slot.repeatCount < 1 || slot.repeatCount > MAX_REPEAT_COUNT)
+				return ValidateError::BadRepeatCount;
+			if (slot.repeatDelayMs > MAX_REPEAT_DELAY_MS)
+				return ValidateError::BadRepeatDelay;
 			const StoredCode& code = slot.code;
 			if (code.kind == CodeKind::None)
 				continue;  // unlearned slot; allowed
@@ -97,6 +101,8 @@ ValidateError validate(const Config& cfg) {
 				if (code.carrierHz < 20000 || code.carrierHz > 60000)
 					return ValidateError::BadIrCarrier;
 			}
+			if (code.frameRepeat < 1 || code.frameRepeat > MAX_FRAME_REPEAT)
+				return ValidateError::BadFrameRepeat;
 		}
 	}
 	return ValidateError::Ok;

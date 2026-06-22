@@ -46,7 +46,6 @@ static Config sampleConfig() {
 	screen.id = 2;
 	screen.service = "WindowCovering";
 	screen.name = "Projector Screen";
-	screen.options.repeatCount = 1;
 	screen.commands.push_back({ "up",   makeRf(315, { 300, 900, 300, 900 }) });
 	screen.commands.push_back({ "stop", makeRf(315, { 600, 600, 600, 600 }) });
 	screen.commands.push_back({ "down", makeRf(315, { 900, 300, 900, 300 }) });
@@ -55,7 +54,10 @@ static Config sampleConfig() {
 	projector.id = 3;
 	projector.service = "Switch";
 	projector.name = "Projector";
-	projector.options.repeatCount = 2;
+	CommandSlot off{ "off", makeIr(38000, { 9000, 4500, 560, 560 }) };
+	off.repeatCount = 2;        // press power, wait, press again to confirm off
+	off.repeatDelayMs = 1000;
+	projector.commands.push_back(off);
 	projector.commands.push_back({ "on", makeIr(38000, { 9000, 4500, 560, 560 }) });
 
 	cfg.devices.push_back(std::move(screen));
@@ -93,11 +95,12 @@ static void assertConfigEqual(const Config& a, const Config& b) {
 		TEST_ASSERT_EQUAL_UINT16(da.id, db.id);
 		TEST_ASSERT_EQUAL_STRING(da.service.c_str(), db.service.c_str());
 		TEST_ASSERT_EQUAL_STRING(da.name.c_str(), db.name.c_str());
-		TEST_ASSERT_EQUAL_UINT8(da.options.repeatCount, db.options.repeatCount);
 		TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(da.commands.size()),
 		                         static_cast<uint32_t>(db.commands.size()));
 		for (size_t j = 0; j < da.commands.size(); ++j) {
 			TEST_ASSERT_EQUAL_STRING(da.commands[j].name.c_str(), db.commands[j].name.c_str());
+			TEST_ASSERT_EQUAL_UINT8(da.commands[j].repeatCount, db.commands[j].repeatCount);
+			TEST_ASSERT_EQUAL_UINT16(da.commands[j].repeatDelayMs, db.commands[j].repeatDelayMs);
 			assertCodeEqual(da.commands[j].code, db.commands[j].code);
 		}
 	}
@@ -124,6 +127,21 @@ static void test_json_roundtrip() {
 	Config parsed;
 	TEST_ASSERT_TRUE(fromJson(json.c_str(), json.size(), parsed));
 	assertConfigEqual(original, parsed);
+}
+
+// codeToJson output is stored verbatim as a command and POSTed whole, so it must parse back unchanged.
+static void test_code_to_json_embeds_in_config() {
+	StoredCode original = makeIr(38000, { 9000, 4500, 560, 560, 560, 1690 });
+	std::string codeJson;
+	TEST_ASSERT_TRUE(codeToJson(original, codeJson));
+
+	std::string cfg = "{\"schemaVersion\":1,\"devices\":[{\"id\":2,\"service\":\"Switch\","
+	                  "\"name\":\"TV\",\"commands\":{\"power\":" + codeJson + "}}]}";
+	Config parsed;
+	TEST_ASSERT_TRUE(fromJson(cfg.c_str(), cfg.size(), parsed));
+	TEST_ASSERT_EQUAL_UINT32(1u, static_cast<uint32_t>(parsed.devices.size()));
+	TEST_ASSERT_EQUAL_UINT32(1u, static_cast<uint32_t>(parsed.devices[0].commands.size()));
+	assertCodeEqual(original, parsed.devices[0].commands[0].code);
 }
 
 // A flipped payload byte fails the CRC and falls back to defaults.
@@ -209,6 +227,41 @@ static void test_over_long_pulses_rejected() {
 	d.commands.push_back({ "on", makeIr(38000, std::vector<uint16_t>(MAX_PULSES + 2, 100)) });
 	cfg.devices.push_back(std::move(d));
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::TooManyPulses),
+	                      static_cast<int>(validate(cfg)));
+}
+
+// repeatCount/repeatDelayMs bounds enforced at the boundary: the browser checks
+// the same range, but a raw POST or imported backup can't.
+static void test_command_repeat_bounds() {
+	Config cfg;
+	cfg.nextDeviceId = 3;
+	VirtualDevice d;
+	d.id = 2;
+	d.service = "Switch";
+	d.commands.push_back({ "on", makeIr(38000, { 9000, 4500, 560, 560 }) });
+	cfg.devices.push_back(d);
+	CommandSlot& cmd = cfg.devices[0].commands[0];
+
+	cmd.repeatCount = 0;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::BadRepeatCount),
+	                      static_cast<int>(validate(cfg)));
+
+	cmd.repeatCount = MAX_REPEAT_COUNT + 1;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::BadRepeatCount),
+	                      static_cast<int>(validate(cfg)));
+
+	cmd.repeatCount = 2;
+	cmd.repeatDelayMs = MAX_REPEAT_DELAY_MS + 1;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::BadRepeatDelay),
+	                      static_cast<int>(validate(cfg)));
+
+	cmd.repeatDelayMs = MAX_REPEAT_DELAY_MS;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
+	                      static_cast<int>(validate(cfg)));
+
+	cmd.repeatCount = 1;
+	cmd.repeatDelayMs = 0;
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(ValidateError::Ok),
 	                      static_cast<int>(validate(cfg)));
 }
 
@@ -568,6 +621,7 @@ int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip_save_load);
 	RUN_TEST(test_json_roundtrip);
+	RUN_TEST(test_code_to_json_embeds_in_config);
 	RUN_TEST(test_crc_corruption_yields_defaults);
 	RUN_TEST(test_magic_corruption_yields_defaults);
 	RUN_TEST(test_schema_version_mismatch_yields_defaults);
@@ -575,6 +629,7 @@ int main(int, char**) {
 	RUN_TEST(test_encode_over_byte_ceiling_rejected);
 	RUN_TEST(test_too_many_devices_rejected);
 	RUN_TEST(test_over_long_pulses_rejected);
+	RUN_TEST(test_command_repeat_bounds);
 	RUN_TEST(test_reserved_device_id_rejected);
 	RUN_TEST(test_over_deep_nesting_rejected);
 	RUN_TEST(test_store_full_retains_previous);

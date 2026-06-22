@@ -28,6 +28,9 @@ constexpr size_t  MAX_CONFIG_BYTES = 16384;  // serialized JSON payload ceiling
 constexpr size_t  MAX_DEVICES      = 32;
 constexpr size_t  MAX_PULSES       = 512;    // uint16_t entries per code
 constexpr uint8_t NESTING_LIMIT    = 6;      // JSON object/array depth ceiling
+constexpr uint8_t  MAX_REPEAT_COUNT    = 10;    // sends per press ceiling (UI, validate, transmit)
+constexpr uint16_t MAX_REPEAT_DELAY_MS = 5000;  // inter-send delay ceiling
+constexpr uint8_t  MAX_FRAME_REPEAT    = 10;    // continuous frames per keying ceiling
 
 constexpr size_t   MAX_DOMAIN_LEN   = 253;   // max total DNS name length
 constexpr size_t   MAX_LABEL_LEN    = 63;    // single DNS label ceiling
@@ -48,6 +51,8 @@ struct StoredCode {
 	uint16_t              freqMHz   = 0;      // RF only (315/433)
 	uint16_t              carrierHz = 0;      // IR only (e.g. 38000)
 	bool                  rolling   = false;  // RF only; rejected at learn, never stored
+	// RF: pulses = one frame + reset gap, replayed this many times so a momentary decoder latches.
+	uint8_t               frameRepeat = 1;
 
 	bool isLearned() const {
 		return kind != CodeKind::None && !pulses.empty();
@@ -62,14 +67,13 @@ struct StoredCode {
 	}
 };
 
-// One named command on a device ("up", "down", "stop", "on", "off", ...).
+// One named command ("up", "down", "on", "off", ...). repeatCount = sends per
+// press, repeatDelayMs apart (0 = back-to-back); a 2-step confirm is count 2 + delay.
 struct CommandSlot {
 	std::string name;
 	StoredCode  code;
-};
-
-struct DeviceOptions {
-	uint8_t repeatCount = 1;  // times to re-send on each press
+	uint8_t     repeatCount   = 1;
+	uint16_t    repeatDelayMs = 0;
 };
 
 // One Apple Home tile; id is allocated once and never reused after deletion.
@@ -77,7 +81,6 @@ struct VirtualDevice {
 	uint16_t                 id = 0;
 	std::string              service;  // HomeKit service, e.g. "WindowCovering"
 	std::string              name;
-	DeviceOptions            options;
 	std::vector<CommandSlot> commands;
 };
 

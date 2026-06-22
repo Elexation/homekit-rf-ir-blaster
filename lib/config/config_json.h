@@ -13,4 +13,7 @@ bool toJson(const Config& cfg, std::string& out);
 // Parse exportable JSON onto defaults; false on oversize, malformed, or too-deep input.
 bool fromJson(const char* data, size_t len, Config& out);
 
+// One learned code in the exact shape toJson/fromJson use (learn endpoint embeds it verbatim).
+bool codeToJson(const StoredCode& code, std::string& out);
+
 }  // namespace config
