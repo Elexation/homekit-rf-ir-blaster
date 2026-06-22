@@ -8,6 +8,7 @@
 #include "config_model.h"
 #include "config_mutate.h"
 #include "config_validate.h"
+#include "frame_merge.h"
 #include "learn_machine.h"
 #include "memory_blob_store.h"
 #include "signal_match.h"
@@ -29,9 +30,8 @@ static std::vector<uint16_t> irFrame() {
 	return p;
 }
 
-// Fixed-code-like RF frame: 24 bit pairs from `bits`, final mark; 49 entries.
-// Same lengths and timing alphabet for any bits, so distinct payloads stay
-// structurally alike.
+// Fixed-code-like RF frame: 24 bit pairs from `bits`, final mark; 49 entries. Same
+// lengths and timing alphabet for any bits, so distinct payloads stay structurally alike.
 static std::vector<uint16_t> rfFrame(uint32_t bits) {
 	std::vector<uint16_t> p;
 	for (int i = 0; i < 24; ++i) {
@@ -47,6 +47,49 @@ static std::vector<uint16_t> jitter(std::vector<uint16_t> p, int delta) {
 	for (auto& v : p)
 		v = static_cast<uint16_t>(v + delta);
 	return p;
+}
+
+// PT2262-style frame: each bit a (mark, space) pair (1 = long/short, 0 = short/long)
+// plus a trailing sync mark, so it ends on a mark (odd), like a collapsed OOK burst.
+static std::vector<uint16_t> pt2262Frame(const std::vector<int>& bits) {
+	const uint16_t A = 416, L = 1248;
+	std::vector<uint16_t> f;
+	for (int b : bits) {
+		f.push_back(b ? L : A);
+		f.push_back(b ? A : L);
+	}
+	f.push_back(A);
+	return f;
+}
+
+// Simulate an AGC clip of one bit: its long mark reads short and the following
+// space reads long (only ever shortens a mark), flipping a 1 toward a 0.
+static std::vector<uint16_t> clipBit(std::vector<uint16_t> f, size_t bit) {
+	f[2 * bit] = 416;
+	f[2 * bit + 1] = 1248;
+	return f;
+}
+
+// Concatenate frames with the reset gap between them; like a captured burst,
+// the final trailing gap is dropped so it ends on a mark.
+static std::vector<uint16_t> burstOf(const std::vector<std::vector<uint16_t>>& frames,
+                                     uint16_t gap) {
+	std::vector<uint16_t> out;
+	for (size_t i = 0; i < frames.size(); ++i) {
+		out.insert(out.end(), frames[i].begin(), frames[i].end());
+		if (i + 1 < frames.size())
+			out.push_back(gap);
+	}
+	return out;
+}
+
+// A one-off ambient burst of a given length (no reset gap); varying lengths stay
+// structurally distinct so they aren't read as rolling.
+static std::vector<uint16_t> noiseFrame(size_t len) {
+	std::vector<uint16_t> f;
+	for (size_t i = 0; i < len; ++i)
+		f.push_back(static_cast<uint16_t>(300 + (i % 5) * 100));
+	return f;
 }
 
 static uint64_t durMs(const std::vector<uint16_t>& p) {
@@ -82,6 +125,125 @@ static void test_duration_tolerance() {
 	TEST_ASSERT_FALSE(durationsMatch(1000, 1400));  // past both bounds
 	TEST_ASSERT_TRUE(durationsMatch(50, 140));      // 90 us under the absolute floor
 	TEST_ASSERT_TRUE(durationsMatch(560, 560));
+}
+
+// --- frame de-clip (multi-frame merge) ---
+
+// A burst with no reset gap is one frame: passed through unchanged, no gap.
+static void test_declip_single_frame_passthrough() {
+	std::vector<uint16_t> f = pt2262Frame({ 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1 });
+	uint16_t out[256];
+	uint16_t gap = 99;
+	size_t n = declipBurst(f.data(), f.size(), out, 256, &gap);
+	TEST_ASSERT_EQUAL_UINT32(f.size(), n);
+	TEST_ASSERT_EQUAL_UINT16_ARRAY(f.data(), out, n);
+	TEST_ASSERT_EQUAL_UINT16(0, gap);
+}
+
+// A bit clipped in two of three frames is recovered from the frame that read
+// it long: longest mark / shortest space per slot wins.
+static void test_declip_recovers_clipped_float() {
+	std::vector<uint16_t> good = pt2262Frame({ 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1 });
+	std::vector<uint16_t> bad = clipBit(good, 0);
+	std::vector<uint16_t> burst = burstOf({ bad, good, bad }, 12896);
+	uint16_t out[256];
+	uint16_t gap = 0;
+	size_t n = declipBurst(burst.data(), burst.size(), out, 256, &gap);
+	TEST_ASSERT_EQUAL_UINT32(good.size(), n);
+	TEST_ASSERT_EQUAL_UINT16_ARRAY(good.data(), out, n);
+	TEST_ASSERT_EQUAL_UINT16(12896, gap);
+}
+
+// A partial leading or truncated trailing frame is off the modal length and
+// never pollutes the merge.
+static void test_declip_drops_ragged_frames() {
+	std::vector<uint16_t> good = pt2262Frame({ 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1 });
+	std::vector<uint16_t> bad = clipBit(good, 2);
+	std::vector<uint16_t> trunc(good.begin(), good.begin() + 5);
+	std::vector<uint16_t> burst = burstOf({ bad, good, good, trunc }, 12896);
+	uint16_t out[256];
+	uint16_t gap = 0;
+	size_t n = declipBurst(burst.data(), burst.size(), out, 256, &gap);
+	TEST_ASSERT_EQUAL_UINT32(good.size(), n);
+	TEST_ASSERT_EQUAL_UINT16_ARRAY(good.data(), out, n);
+}
+
+// The stored reset gap is the longest pause, not an average: a noise-shortened
+// gap between two frames never drags the measured gap down.
+static void test_declip_gap_is_longest() {
+	std::vector<uint16_t> good = pt2262Frame({ 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1 });
+	std::vector<uint16_t> burst;
+	burst.insert(burst.end(), good.begin(), good.end());
+	burst.push_back(6000);  // a chopped gap
+	burst.insert(burst.end(), good.begin(), good.end());
+	burst.push_back(12896);  // the true gap
+	burst.insert(burst.end(), good.begin(), good.end());
+	uint16_t out[256];
+	uint16_t gap = 0;
+	size_t n = declipBurst(burst.data(), burst.size(), out, 256, &gap);
+	TEST_ASSERT_EQUAL_UINT32(good.size(), n);
+	TEST_ASSERT_EQUAL_UINT16(12896, gap);
+}
+
+// A multi-frame RF press de-clips to one clean frame + its reset gap, with
+// frameRepeat set so transmit replays it as a continuous burst.
+static void test_rf_capture_declips_and_sets_repeat() {
+	LearnMachine m;
+	m.begin(T0);
+	std::vector<uint16_t> good = pt2262Frame({ 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1 });
+	std::vector<uint16_t> bad = clipBit(good, 0);
+	std::vector<uint16_t> burst = burstOf({ bad, good, bad, good }, 12896);
+	uint64_t end = feedAfter(m, Source::Rf433, burst, 0, T0, 5);
+	end = feedAfter(m, Source::Rf433, burst, 0, end, 12);
+	end = feedAfter(m, Source::Rf433, burst, 0, end, 12);
+	TEST_ASSERT_EQUAL(static_cast<int>(State::Listening), static_cast<int>(m.state()));
+	feedAfter(m, Source::Rf433, burst, 0, end, 400);
+	TEST_ASSERT_EQUAL(static_cast<int>(State::Captured), static_cast<int>(m.state()));
+
+	StoredCode code = m.takeCode();
+	TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::RF), static_cast<int>(code.kind));
+	TEST_ASSERT_EQUAL_UINT16(433, code.freqMHz);
+	TEST_ASSERT_EQUAL_UINT32(good.size() + 1, code.pulses.size());  // one frame + gap
+	for (size_t i = 0; i < good.size(); ++i)
+		TEST_ASSERT_EQUAL_UINT16(good[i], code.pulses[i]);  // de-clipped frame
+	TEST_ASSERT_EQUAL_UINT16(12896, code.pulses.back());     // reset gap
+	TEST_ASSERT_EQUAL_UINT8(4, code.frameRepeat);            // measured: 4 frames in the burst
+}
+
+// When ambient traffic has filled every cluster slot, a real repeating remote
+// still captures: the weakest (one-off) slot is evicted to make room.
+static void test_ambient_eviction_lets_remote_capture() {
+	LearnMachine m;
+	m.begin(T0);
+	uint64_t end = T0;
+	for (size_t k = 0; k < LearnMachine::kMaxClusters; ++k)
+		end = feedAfter(m, Source::Rf433, noiseFrame(17 + k * 2), 0, end, 50);
+	std::vector<uint16_t> remote = rfFrame(0x0ABCDE);
+	end = feedAfter(m, Source::Rf433, remote, 0, end, 400);
+	end = feedAfter(m, Source::Rf433, remote, 0, end, 12);
+	end = feedAfter(m, Source::Rf433, remote, 0, end, 12);
+	feedAfter(m, Source::Rf433, remote, 0, end, 400);
+	TEST_ASSERT_EQUAL(static_cast<int>(State::Captured), static_cast<int>(m.state()));
+}
+
+// Once a remote has been pressed twice, an ambient flood that ties its match
+// count must not evict it before the third press locks it in. Without the
+// seen-across-presses protection the remote (oldest slot) loses the tie.
+static void test_remote_survives_ambient_after_two_presses() {
+	LearnMachine m;
+	m.begin(T0);
+	std::vector<uint16_t> remote = rfFrame(0x0ABCDE);
+	uint64_t end = feedAfter(m, Source::Rf433, remote, 0, T0, 400);  // press 1
+	end = feedAfter(m, Source::Rf433, remote, 0, end, 400);          // press 2 -> protected
+	// Ambient signals, each repeating within its own window so its count ties the
+	// remote's (without protection the remote would lose the tie and be evicted).
+	for (size_t k = 0; k < LearnMachine::kMaxClusters + 2; ++k) {
+		std::vector<uint16_t> amb = noiseFrame(17 + k * 2);
+		end = feedAfter(m, Source::Rf433, amb, 0, end, 400);  // new press
+		end = feedAfter(m, Source::Rf433, amb, 0, end, 5);    // repeat -> count 2
+	}
+	feedAfter(m, Source::Rf433, remote, 0, end, 400);  // press 3 -> captures if it survived
+	TEST_ASSERT_EQUAL(static_cast<int>(State::Captured), static_cast<int>(m.state()));
 }
 
 // --- learn machine: success paths ---
@@ -129,8 +291,9 @@ static void test_rf_success_needs_two_presses() {
 	TEST_ASSERT_EQUAL_UINT16(433, code.freqMHz);
 	TEST_ASSERT_EQUAL_UINT16(0, code.carrierHz);
 	TEST_ASSERT_FALSE(code.rolling);
-	TEST_ASSERT_EQUAL_UINT32(f.size() + 1, code.pulses.size());
+	TEST_ASSERT_EQUAL_UINT32(f.size() + 1, code.pulses.size());  // one frame + gap
 	TEST_ASSERT_EQUAL_UINT16(12000, code.pulses.back());
+	TEST_ASSERT_EQUAL_UINT8(kStoredFrameCount, code.frameRepeat);  // measured repeat
 }
 
 // The 315 source stamps its band on the stored code.
@@ -586,6 +749,13 @@ static void test_learned_code_roundtrip() {
 int main(int, char**) {
 	UNITY_BEGIN();
 	RUN_TEST(test_duration_tolerance);
+	RUN_TEST(test_declip_single_frame_passthrough);
+	RUN_TEST(test_declip_recovers_clipped_float);
+	RUN_TEST(test_declip_drops_ragged_frames);
+	RUN_TEST(test_declip_gap_is_longest);
+	RUN_TEST(test_rf_capture_declips_and_sets_repeat);
+	RUN_TEST(test_ambient_eviction_lets_remote_capture);
+	RUN_TEST(test_remote_survives_ambient_after_two_presses);
 	RUN_TEST(test_ir_success_single_press);
 	RUN_TEST(test_rf_success_needs_two_presses);
 	RUN_TEST(test_rf315_band_mapped);

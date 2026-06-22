@@ -26,7 +26,7 @@ public:
 	// Trailing gap stored when no inter-repeat gap was observed.
 	static constexpr uint16_t kDefaultTrailGapUs = 30000;
 	static constexpr uint16_t kMinTrailGapUs = 5000;
-	static constexpr size_t kMaxClusters = 6;   // pulse trains tracked per source
+	static constexpr size_t kMaxClusters = 12;  // pulse trains tracked per source (ambient headroom)
 	static constexpr size_t kMaxGroups   = 16;  // press groups tracked per source
 
 	void begin(uint64_t now);  // arms a fresh session
@@ -66,6 +66,8 @@ private:
 		uint16_t curGroup    = 0;
 		int      lastCluster = -1;
 		bool     sawBurst    = false;
+		uint16_t resetGapUs  = 0;  // inter-frame gap from de-clip; 0 = single-frame bursts
+		uint16_t frameCount  = 0;  // repeated frames per press, from de-clip
 	};
 
 	static constexpr uint8_t kMaxClusterMembers = 250;

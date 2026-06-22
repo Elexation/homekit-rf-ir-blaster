@@ -1,6 +1,9 @@
 #include "learn_machine.h"
 
 #include <algorithm>
+#include <vector>
+
+#include "frame_merge.h"
 
 namespace learn {
 
@@ -81,27 +84,73 @@ void LearnMachine::feedBurst(Source src, const uint16_t* pulses, size_t len,
 		}
 	}
 
+	// RF: de-clip repeated frames before matching/storing to undo gain clipping; IR is clean.
+	const uint16_t* fp = pulses;
+	size_t          fl = len;
+	std::vector<uint16_t> declipped;
+	if (src != Source::Ir) {
+		declipped.resize(len);
+		uint16_t gap = 0, frames = 0;
+		size_t dl = declipBurst(pulses, len, declipped.data(), declipped.size(), &gap, &frames);
+		if (dl > 0) {
+			fp = declipped.data();
+			fl = dl;
+			if (gap > 0)
+				t.resetGapUs = gap;
+			if (frames > 1 && frames > t.frameCount)
+				t.frameCount = frames;
+		}
+	}
+
 	int cl = -1;
-	if (wellFormed(src, pulses, len, carrierHz)) {
+	if (wellFormed(src, fp, fl, carrierHz)) {
 		for (size_t i = 0; i < t.clusters.size(); ++i) {
-			if (burstsMatch(t.clusters[i].repr.data(), t.clusters[i].repr.size(), pulses, len)) {
+			if (burstsMatch(t.clusters[i].repr.data(), t.clusters[i].repr.size(), fp, fl)) {
 				cl = static_cast<int>(i);
 				break;
 			}
 		}
-		if (cl < 0 && t.clusters.size() < kMaxClusters) {
-			Cluster c;
-			c.repr.assign(pulses, pulses + len);
-			c.sum.assign(len, 0);
-			t.clusters.push_back(std::move(c));
-			cl = static_cast<int>(t.clusters.size() - 1);
+		if (cl < 0) {
+			int slot = -1;
+			if (t.clusters.size() < kMaxClusters) {
+				t.clusters.push_back(Cluster{});
+				slot = static_cast<int>(t.clusters.size() - 1);
+			} else {
+				// Slots full: evict the weakest cluster so a real repeat still fits
+				// (ambient noise forms low-count clusters). Protect an established
+				// candidate or anything seen across >= kRfPressesNeeded presses.
+				int weakest = -1;
+				for (size_t i = 0; i < t.clusters.size(); ++i) {
+					if (t.clusters[i].count >= kMatchesNeeded ||
+					    t.clusters[i].groupCount >= kRfPressesNeeded)
+						continue;
+					if (weakest < 0 ||
+					    t.clusters[i].count < t.clusters[static_cast<size_t>(weakest)].count)
+						weakest = static_cast<int>(i);
+				}
+				if (weakest >= 0) {
+					for (Group& g : t.groups)
+						if (g.firstCluster == weakest) {
+							g.firstCluster = -1;
+							g.dirty = true;
+						}
+					t.clusters[static_cast<size_t>(weakest)] = Cluster{};
+					slot = weakest;
+				}
+			}
+			if (slot >= 0) {
+				Cluster& c = t.clusters[static_cast<size_t>(slot)];
+				c.repr.assign(fp, fp + fl);
+				c.sum.assign(fl, 0);
+				cl = slot;
+			}
 		}
 		if (cl >= 0) {
 			Cluster& c = t.clusters[static_cast<size_t>(cl)];
 			if (c.count < kMaxClusterMembers) {
 				++c.count;
-				for (size_t i = 0; i < len; ++i)
-					c.sum[i] += pulses[i];
+				for (size_t i = 0; i < fl; ++i)
+					c.sum[i] += fp[i];
 				c.carrierSum += carrierHz;
 			}
 			if (c.lastGroup != t.curGroup) {
@@ -187,15 +236,35 @@ void LearnMachine::capture(Source src, const Cluster& c) {
 		code.freqMHz = src == Source::Rf315 ? 315 : 433;
 	}
 
+	// Per-entry average of the matched frames (de-clipped for RF).
 	size_t len = c.repr.size();
-	code.pulses.resize(len);
+	std::vector<uint16_t> frame(len);
 	for (size_t i = 0; i < len; ++i)
-		code.pulses[i] = static_cast<uint16_t>((c.sum[i] + c.count / 2) / c.count);
-	if (len % 2 != 0) {
-		uint32_t gap = c.gapCount > 0 ? (c.gapSumUs + c.gapCount / 2) / c.gapCount
-		                              : kDefaultTrailGapUs;
-		gap = std::max<uint32_t>(gap, kMinTrailGapUs);
-		code.pulses.push_back(static_cast<uint16_t>(std::min<uint32_t>(gap, 65535)));
+		frame[i] = static_cast<uint16_t>((c.sum[i] + c.count / 2) / c.count);
+
+	uint16_t resetGap = tracks_[static_cast<size_t>(src)].resetGapUs;
+	if (src != Source::Ir) {
+		// Store one frame + its reset gap; frameRepeat replays it at transmit. Gap:
+		// the de-clip's in-burst value, else the measured inter-capture gap, else default.
+		uint32_t gap = resetGap > 0
+		                   ? resetGap
+		                   : (c.gapCount > 0 ? (c.gapSumUs + c.gapCount / 2) / c.gapCount
+		                                     : kDefaultTrailGapUs);
+		gap = std::min<uint32_t>(std::max<uint32_t>(gap, kMinTrailGapUs), 65535);
+		code.pulses = std::move(frame);                    // ends on a mark (odd)
+		code.pulses.push_back(static_cast<uint16_t>(gap));  // + gap -> even
+		uint16_t count = tracks_[static_cast<size_t>(src)].frameCount;
+		if (count < 1)
+			count = static_cast<uint16_t>(kStoredFrameCount);  // single-frame capture fallback
+		code.frameRepeat = static_cast<uint8_t>(std::min<uint16_t>(count, config::MAX_FRAME_REPEAT));
+	} else {
+		code.pulses = std::move(frame);
+		if (len % 2 != 0) {
+			uint32_t gap = c.gapCount > 0 ? (c.gapSumUs + c.gapCount / 2) / c.gapCount
+			                              : kDefaultTrailGapUs;
+			gap = std::max<uint32_t>(gap, kMinTrailGapUs);
+			code.pulses.push_back(static_cast<uint16_t>(std::min<uint32_t>(gap, 65535)));
+		}
 	}
 
 	code_ = std::move(code);
