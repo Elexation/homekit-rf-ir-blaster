@@ -1,5 +1,4 @@
-// Settings page. Validation mirrors the config layer so a value the firmware
-// would reject is caught before sending. Saving the web-access form restarts.
+// Settings page; validation mirrors the config layer, and saving the web-access form restarts.
 
 (function () {
 	'use strict';
@@ -19,6 +18,7 @@
 	var MAX_DEVICES = 32;
 	var MAX_PULSES = 512;
 	var MAX_REPEAT = 10;
+	var MAX_DELAY = 5000;
 	var SERVICES = { Switch: 1, WindowCovering: 1, Outlet: 1, LightBulb: 1, Fan: 1, Television: 1 };
 
 	var state = { rev: 0, config: null, pending: null };
@@ -154,8 +154,7 @@
 		});
 	}
 
-	// Export is compact JSON matching the firmware's output so it round-trips
-	// under the byte ceiling. Import re-checks bounds for messaging; the device re-validates.
+	// Export is compact JSON (matches the firmware) so it round-trips under the byte ceiling.
 
 	function exportFile() {
 		var json = JSON.stringify(state.config);
@@ -210,11 +209,6 @@
 			if (!SERVICES[d.service]) {
 				issues.push('Device "' + label + '" has an unknown type "' + UI.escapeHtml(d.service) + '".');
 			}
-			if (d.options && d.options.repeatCount !== undefined &&
-				(typeof d.options.repeatCount !== 'number' || !Number.isInteger(d.options.repeatCount) ||
-				d.options.repeatCount < 1 || d.options.repeatCount > MAX_REPEAT)) {
-				issues.push('Device "' + label + '" has an invalid repeat count.');
-			}
 			var cmds = d.commands || {};
 			Object.keys(cmds).forEach(function (name) {
 				var c = cmds[name], cl = UI.escapeHtml(name);
@@ -225,6 +219,16 @@
 				if (pulses.length > MAX_PULSES) issues.push('Command "' + cl + '" on "' + label + '" has too many pulses (limit ' + MAX_PULSES + ').');
 				if (c && c.kind === 'rf' && c.freqMHz !== 315 && c.freqMHz !== 433) {
 					issues.push('Command "' + cl + '" on "' + label + '" has an invalid RF frequency.');
+				}
+				if (c && c.repeatCount !== undefined &&
+					(typeof c.repeatCount !== 'number' || !Number.isInteger(c.repeatCount) ||
+					c.repeatCount < 1 || c.repeatCount > MAX_REPEAT)) {
+					issues.push('Command "' + cl + '" on "' + label + '" has an invalid repeat count.');
+				}
+				if (c && c.repeatDelayMs !== undefined &&
+					(typeof c.repeatDelayMs !== 'number' || !Number.isInteger(c.repeatDelayMs) ||
+					c.repeatDelayMs < 0 || c.repeatDelayMs > MAX_DELAY)) {
+					issues.push('Command "' + cl + '" on "' + label + '" has an invalid repeat delay.');
 				}
 			});
 		});

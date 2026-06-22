@@ -37,6 +37,14 @@
 .cmd__edit { display: flex; gap: 8px; flex: 1; align-items: center; }
 .cmd__edit .input { flex: 1; padding: 8px 12px; font-size: 14px; }
 
+.cmd__editor { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.cmd__editor .input { padding: 8px 12px; font-size: 14px; }
+.cmd__opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cmd__opts .dev-form__label { white-space: nowrap; }
+.cmd__num { width: 90px; }
+.cmd__opts-actions { display: flex; gap: 8px; }
+.cmd__repeat { margin-left: 8px; font-size: 11.5px; color: var(--sub); font-variant-numeric: tabular-nums; }
+
 .icon-btn {
 	display: grid;
 	place-items: center;

@@ -1,5 +1,4 @@
-// Learn modal (shared by dashboard and device pages). The opener passes its
-// config/rev and refreshes via onSaved. Capture is stubbed until the radios exist.
+// Learn modal (shared by dashboard and device pages); the opener passes config/rev and refreshes via onSaved.
 
 window.BlasterLearn = (function () {
 	'use strict';
@@ -28,11 +27,6 @@ window.BlasterLearn = (function () {
 		rolling: {
 			title: 'This remote can’t be learned',
 			note: 'Every press sends a new rolling code, so a captured one is already spent when it is replayed.',
-			retry: false
-		},
-		unavailable: {
-			title: 'Learning isn’t ready yet',
-			note: 'Capturing codes needs the radio hardware, which isn’t connected on this build. It will work once the receivers are wired in.',
 			retry: false
 		}
 	};
@@ -77,92 +71,6 @@ window.BlasterLearn = (function () {
 		}
 	}
 
-	// Themed dropdown. items = [{value,label,icon}]; current value in root's
-	// data-value; onChange(value) on select.
-	function buildDropdown(root, items, value, id, onChange) {
-		function find(v) {
-			for (var i = 0; i < items.length; i++) {
-				if (items[i].value === v) return items[i];
-			}
-			return items[0];
-		}
-		function triggerHtml(it) {
-			return (it.icon ? UI.icon(it.icon, 16) : '') +
-				'<span class="dropdown__val">' + UI.escapeHtml(it.label) + '</span>' +
-				'<span class="dropdown__chev">' + UI.icon('i-chev-d', 16) + '</span>';
-		}
-		var current = find(value);
-		root.className = 'dropdown';
-		root.setAttribute('data-value', current.value);
-		root.innerHTML = '<button type="button" class="input dropdown__btn" id="' + id + '" aria-haspopup="listbox" aria-expanded="false">' +
-				triggerHtml(current) + '</button>' +
-			'<div class="dropdown__list" role="listbox" hidden>' +
-				items.map(function (it) {
-					var active = it === current;
-					return '<button type="button" class="dropdown__item' + (active ? ' is-active' : '') + '" role="option"' +
-						' aria-selected="' + active + '" data-value="' + UI.escapeHtml(it.value) + '">' +
-						(it.icon ? UI.icon(it.icon, 16) : '') + UI.escapeHtml(it.label) + '</button>';
-				}).join('') +
-			'</div>';
-		var btn = root.querySelector('.dropdown__btn');
-		var list = root.querySelector('.dropdown__list');
-		function onDocClick(e) {
-			if (!root.contains(e.target)) setOpen(false);
-		}
-		function setOpen(open) {
-			list.hidden = !open;
-			root.classList.toggle('is-open', open);
-			btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-			if (open) {
-				document.addEventListener('click', onDocClick);
-				var act = list.querySelector('.is-active') || list.querySelector('.dropdown__item');
-				if (act) act.focus();
-			} else {
-				document.removeEventListener('click', onDocClick);
-			}
-		}
-		function select(item) {
-			var v = item.getAttribute('data-value');
-			root.setAttribute('data-value', v);
-			list.querySelectorAll('.dropdown__item').forEach(function (o) {
-				o.classList.toggle('is-active', o === item);
-				o.setAttribute('aria-selected', o === item ? 'true' : 'false');
-			});
-			btn.innerHTML = triggerHtml(find(v));
-			setOpen(false);
-			btn.focus();
-			if (onChange) onChange(v);
-		}
-		btn.addEventListener('click', function () { setOpen(list.hidden); });
-		btn.addEventListener('keydown', function (e) {
-			if (e.key === 'ArrowDown' && list.hidden) {
-				e.preventDefault();
-				setOpen(true);
-			} else if (e.key === 'Escape' && !list.hidden) {
-				e.stopPropagation(); // close the list, not the modal
-				setOpen(false);
-			}
-		});
-		list.addEventListener('keydown', function (e) {
-			var els = Array.prototype.slice.call(list.querySelectorAll('.dropdown__item'));
-			var i = els.indexOf(document.activeElement);
-			if (e.key === 'ArrowDown') {
-				e.preventDefault();
-				if (i < els.length - 1) els[i + 1].focus();
-			} else if (e.key === 'ArrowUp') {
-				e.preventDefault();
-				if (i > 0) els[i - 1].focus();
-			} else if (e.key === 'Escape') {
-				e.stopPropagation(); // close the list, not the modal
-				setOpen(false);
-				btn.focus();
-			}
-		});
-		list.querySelectorAll('.dropdown__item').forEach(function (it) {
-			it.addEventListener('click', function () { select(it); });
-		});
-	}
-
 	function open(opts) {
 		if (active) return;
 		active = true;
@@ -172,7 +80,8 @@ window.BlasterLearn = (function () {
 			code: null,
 			reason: 'noisy',
 			target: opts.deviceId != null ? String(opts.deviceId) : 'new',
-			service: 'Switch'
+			service: 'Switch',
+			command: null
 		};
 		var scrim = document.createElement('div');
 		scrim.className = 'modal-scrim';
@@ -283,10 +192,13 @@ window.BlasterLearn = (function () {
 				'</div>';
 			}
 			modal.innerHTML = head('Name &amp; assign', 3) +
-				'<div class="learn-field">' +
-					'<label class="ctl__label" for="learn-name">Command name</label>' +
-					'<input class="input" id="learn-name" type="text" maxlength="' + NAME_MAX + '" placeholder="Power" data-autofocus>' +
-					'<div class="field-error" data-name-err hidden></div>' +
+				'<div class="learn-field" data-cmd-field>' +
+					'<label class="ctl__label" for="learn-cmd">Command</label>' +
+					'<div data-dd-command></div>' +
+				'</div>' +
+				'<div class="learn-field" data-cmd-full hidden>' +
+					'<div class="learn-note learn-note--warn">' + UI.icon('i-signal', 16) +
+						'<span>Every command for this device is already learned. Delete one to free a slot.</span></div>' +
 				'</div>' +
 				deviceField +
 				'<div class="learn-field" data-new-name hidden>' +
@@ -309,42 +221,69 @@ window.BlasterLearn = (function () {
 				modal.querySelector('[data-new-name]').hidden = !isNew;
 				modal.querySelector('[data-new-service]').hidden = !isNew;
 			}
+			function resolveTargetDevice() {
+				if (locked) return locked;
+				if (state.target !== 'new') return Data.findDevice(opts.config, state.target);
+				return null;
+			}
+			// Offer only valid command names not already used on the target; if none, hide the picker and block Save.
+			function refreshCommandOptions() {
+				var dev = resolveTargetDevice();
+				var service = dev ? dev.service : state.service;
+				var used = dev ? dev.commands : {};
+				var avail = UI.commandsForService(service).filter(function (c) {
+					return !Object.prototype.hasOwnProperty.call(used, c.value);
+				});
+				var field = modal.querySelector('[data-cmd-field]');
+				var full = modal.querySelector('[data-cmd-full]');
+				var saveBtn = modal.querySelector('[data-save]');
+				if (!avail.length) {
+					field.hidden = true;
+					full.hidden = false;
+					saveBtn.disabled = true;
+					state.command = null;
+					return;
+				}
+				field.hidden = false;
+				full.hidden = true;
+				saveBtn.disabled = false;
+				if (!state.command || avail.every(function (c) { return c.value !== state.command; })) {
+					state.command = avail[0].value;
+				}
+				var host = modal.querySelector('[data-dd-command]');
+				UI.buildDropdown(host, avail, state.command, 'learn-cmd', function (v) { state.command = v; });
+				var btn = host.querySelector('.dropdown__btn');
+				if (btn) btn.setAttribute('data-autofocus', '');
+			}
 			var devHost = modal.querySelector('[data-dd-device]');
 			if (devHost) {
 				var items = opts.config.devices.map(function (d) {
 					return { value: String(parseInt(d.id, 10) || 0), label: d.name, icon: UI.serviceIcon(d.service) };
 				});
 				items.push({ value: 'new', label: 'New device…', icon: 'i-plus' });
-				buildDropdown(devHost, items, state.target, 'learn-device', function (v) {
+				UI.buildDropdown(devHost, items, state.target, 'learn-device', function (v) {
 					state.target = v;
 					refreshNew();
+					refreshCommandOptions();
 				});
 			}
-			buildDropdown(modal.querySelector('[data-dd-service]'), SERVICES.map(function (s) {
+			UI.buildDropdown(modal.querySelector('[data-dd-service]'), SERVICES.map(function (s) {
 				return { value: s, label: UI.serviceLabel(s), icon: UI.serviceIcon(s) };
-			}), state.service, 'learn-service', function (v) { state.service = v; });
+			}), state.service, 'learn-service', function (v) {
+				state.service = v;
+				refreshCommandOptions();
+			});
 			refreshNew();
+			refreshCommandOptions();
 			modal.querySelector('[data-back]').addEventListener('click', function () { setStep('captured'); });
 			modal.querySelector('[data-save]').addEventListener('click', save);
 		}
 
 		function save() {
-			var nameEl = modal.querySelector('#learn-name');
-			var nameErr = modal.querySelector('[data-name-err]');
-			var name = nameEl.value.trim();
+			var name = state.command;
+			if (!name) return; // every valid command already learned; Save is disabled
 			var isNew = state.target === 'new';
 			var target = isNew ? null : Data.findDevice(opts.config, state.target);
-			var ok = true;
-
-			if (!name) {
-				showError(nameEl, nameErr, 'Command name cannot be empty.');
-				ok = false;
-			} else if (target && Object.prototype.hasOwnProperty.call(target.commands, name)) {
-				showError(nameEl, nameErr, 'A command named “' + name + '” already exists on this device.');
-				ok = false;
-			} else {
-				showError(nameEl, nameErr, null);
-			}
 
 			var devName = '';
 			if (isNew) {
@@ -353,15 +292,14 @@ window.BlasterLearn = (function () {
 				devName = devEl.value.trim();
 				if (!devName) {
 					showError(devEl, devErr, 'Device name cannot be empty.');
-					ok = false;
-				} else if (opts.config.devices.length >= MAX_DEVICES) {
-					showError(devEl, devErr, 'The device limit (' + MAX_DEVICES + ') is reached.');
-					ok = false;
-				} else {
-					showError(devEl, devErr, null);
+					return;
 				}
+				if (opts.config.devices.length >= MAX_DEVICES) {
+					showError(devEl, devErr, 'The device limit (' + MAX_DEVICES + ') is reached.');
+					return;
+				}
+				showError(devEl, devErr, null);
 			}
-			if (!ok) return;
 
 			modal.querySelector('[data-save]').disabled = true;
 			var write;

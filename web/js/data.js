@@ -1,5 +1,4 @@
-// Web UI data seam: real HTTPS calls. Granular writes merge into the cached
-// config and POST the whole document; the server enforces rev and validates.
+// Web UI data seam: granular writes merge into the cached config and POST the whole document.
 
 window.BlasterData = (function () {
 	'use strict';
@@ -21,6 +20,7 @@ window.BlasterData = (function () {
 	var cachedConfig = null;
 	var cachedRev = 0;
 	var csrfToken = null;
+	var learnPolling = false;  // gate for the in-flight learn poll loop; cleared on capture/cancel
 
 	function clone(o) { return JSON.parse(JSON.stringify(o)); }
 	function setCache(cfg, rev) { cachedConfig = clone(cfg); cachedRev = rev; }
@@ -131,7 +131,6 @@ window.BlasterData = (function () {
 				for (var i = 0; i < cfg.devices.length; i++) {
 					if (cfg.devices[i].id !== n) continue;
 					if (typeof patch.name === 'string') cfg.devices[i].name = patch.name;
-					if (patch.options) cfg.devices[i].options = patch.options;
 					if (patch.commands) cfg.devices[i].commands = patch.commands;
 				}
 			});
@@ -145,7 +144,7 @@ window.BlasterData = (function () {
 				cfg.nextDeviceId += 1;
 				cfg.devices.push({
 					id: id, service: dev.service, name: dev.name,
-					options: { repeatCount: 1 }, commands: dev.commands || {}
+					commands: dev.commands || {}
 				});
 				return { id: id };
 			});
@@ -180,10 +179,31 @@ window.BlasterData = (function () {
 			return csrf().then(function (tok) { return postForm('/api/logout', { csrf: tok }); });
 		},
 
-		// Stubbed until the radios are wired: startLearn resolves {ok:false,reason:'unavailable'}.
-		startLearn: function () { return getJson('/api/learn/start'); },
+		// Arm the receiver, then poll for the outcome (the httpd task can't block for the
+		// 30 s window). Resolves {ok:true,code} on capture, {ok:false,reason} on failure.
+		startLearn: function () {
+			learnPolling = true;
+			return getJson('/api/learn/start').then(function (res) {
+				if (res && res.ok === false) { learnPolling = false; return res; }
+				return new Promise(function (resolve) {
+					function poll() {
+						if (!learnPolling) return;  // cancelled; the modal has already moved on
+						fetch('/api/learn/poll', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+							.then(function (r) { return r.status === 401 ? toLogin() : r.json(); })
+							.then(function (p) {
+								if (!learnPolling) return;
+								if (p && (p.ok === true || p.ok === false)) { learnPolling = false; resolve(p); }
+								else setTimeout(poll, 400);  // still listening
+							})
+							.catch(function () { if (learnPolling) setTimeout(poll, 400); });  // transient; keep trying
+					}
+					poll();
+				});
+			});
+		},
 
 		cancelLearn: function () {
+			learnPolling = false;  // stop the poll loop
 			return fetch('/api/learn/cancel', { method: 'POST', credentials: 'same-origin' })
 				.then(function (r) { return r.status === 401 ? toLogin() : r.json(); });
 		}

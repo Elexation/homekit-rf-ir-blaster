@@ -25,6 +25,44 @@ window.BlasterUI = (function () {
 	function serviceIcon(service) { return SERVICE_ICON[service] || 'i-zap'; }
 	function serviceLabel(service) { return SERVICE_LABEL[service] || 'Device'; }
 
+	// Command-name dispatch contract; MUST mirror firePower/keyCommand + the WindowCovering
+	// up/down/stop map in src/accessory_builder.cpp (any other name never transmits).
+	var POWER_CMDS = [
+		{ value: 'on', label: 'On' },
+		{ value: 'off', label: 'Off' },
+		{ value: 'toggle', label: 'Toggle' }
+	];
+	var COMMANDS = {
+		Switch: POWER_CMDS,
+		Outlet: POWER_CMDS,
+		LightBulb: POWER_CMDS,
+		Fan: POWER_CMDS,
+		WindowCovering: [
+			{ value: 'up', label: 'Open' },
+			{ value: 'down', label: 'Close' },
+			{ value: 'stop', label: 'Stop' }
+		],
+		Television: POWER_CMDS.concat([
+			{ value: 'key_up', label: 'Up' },
+			{ value: 'key_down', label: 'Down' },
+			{ value: 'key_left', label: 'Left' },
+			{ value: 'key_right', label: 'Right' },
+			{ value: 'key_select', label: 'Select' },
+			{ value: 'key_back', label: 'Back' },
+			{ value: 'key_play_pause', label: 'Play / Pause' },
+			{ value: 'key_info', label: 'Info' },
+			{ value: 'volume_up', label: 'Volume Up' },
+			{ value: 'volume_down', label: 'Volume Down' }
+		])
+	};
+	var COMMAND_LABEL = {};
+	Object.keys(COMMANDS).forEach(function (svc) {
+		COMMANDS[svc].forEach(function (c) { COMMAND_LABEL[c.value] = c.label; });
+	});
+
+	function commandsForService(service) { return COMMANDS[service] || []; }
+	function commandLabel(name) { return COMMAND_LABEL[name] || name; }
+
 	function escapeHtml(s) {
 		return String(s == null ? '' : s)
 			.replace(/&/g, '&amp;')
@@ -63,7 +101,8 @@ window.BlasterUI = (function () {
 			var c = device.commands[name];
 			return {
 				name: name, kind: c.kind, freqMHz: c.freqMHz,
-				carrierHz: c.carrierHz, rolling: c.rolling, pulses: c.pulses
+				carrierHz: c.carrierHz, rolling: c.rolling, pulses: c.pulses,
+				repeatCount: c.repeatCount, repeatDelayMs: c.repeatDelayMs
 			};
 		});
 	}
@@ -142,9 +181,97 @@ window.BlasterUI = (function () {
 		});
 	}
 
+	// Themed dropdown; items = [{value,label,icon}], onChange(value) on select.
+	function buildDropdown(root, items, value, id, onChange) {
+		function find(v) {
+			for (var i = 0; i < items.length; i++) {
+				if (items[i].value === v) return items[i];
+			}
+			return items[0];
+		}
+		function triggerHtml(it) {
+			return (it.icon ? icon(it.icon, 16) : '') +
+				'<span class="dropdown__val">' + escapeHtml(it.label) + '</span>' +
+				'<span class="dropdown__chev">' + icon('i-chev-d', 16) + '</span>';
+		}
+		var current = find(value);
+		root.className = 'dropdown';
+		root.setAttribute('data-value', current.value);
+		root.innerHTML = '<button type="button" class="input dropdown__btn" id="' + id + '" aria-haspopup="listbox" aria-expanded="false">' +
+				triggerHtml(current) + '</button>' +
+			'<div class="dropdown__list" role="listbox" hidden>' +
+				items.map(function (it) {
+					var active = it === current;
+					return '<button type="button" class="dropdown__item' + (active ? ' is-active' : '') + '" role="option"' +
+						' aria-selected="' + active + '" data-value="' + escapeHtml(it.value) + '">' +
+						(it.icon ? icon(it.icon, 16) : '') + escapeHtml(it.label) + '</button>';
+				}).join('') +
+			'</div>';
+		var btn = root.querySelector('.dropdown__btn');
+		var list = root.querySelector('.dropdown__list');
+		function onDocClick(e) {
+			if (!root.contains(e.target)) setOpen(false);
+		}
+		function setOpen(open) {
+			list.hidden = !open;
+			root.classList.toggle('is-open', open);
+			btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+			if (open) {
+				document.addEventListener('click', onDocClick);
+				var act = list.querySelector('.is-active') || list.querySelector('.dropdown__item');
+				if (act) act.focus();
+			} else {
+				document.removeEventListener('click', onDocClick);
+			}
+		}
+		function select(item) {
+			var v = item.getAttribute('data-value');
+			root.setAttribute('data-value', v);
+			list.querySelectorAll('.dropdown__item').forEach(function (o) {
+				o.classList.toggle('is-active', o === item);
+				o.setAttribute('aria-selected', o === item ? 'true' : 'false');
+			});
+			btn.innerHTML = triggerHtml(find(v));
+			setOpen(false);
+			btn.focus();
+			if (onChange) onChange(v);
+		}
+		btn.addEventListener('click', function () { setOpen(list.hidden); });
+		btn.addEventListener('keydown', function (e) {
+			if (e.key === 'ArrowDown' && list.hidden) {
+				e.preventDefault();
+				setOpen(true);
+			} else if (e.key === 'Escape' && !list.hidden) {
+				e.stopPropagation(); // close the list, not the modal
+				setOpen(false);
+			}
+		});
+		list.addEventListener('keydown', function (e) {
+			var els = Array.prototype.slice.call(list.querySelectorAll('.dropdown__item'));
+			var i = els.indexOf(document.activeElement);
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				if (i < els.length - 1) els[i + 1].focus();
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				if (i > 0) els[i - 1].focus();
+			} else if (e.key === 'Escape') {
+				e.stopPropagation(); // close the list, not the modal
+				setOpen(false);
+				btn.focus();
+			}
+		});
+		list.querySelectorAll('.dropdown__item').forEach(function (it) {
+			it.addEventListener('click', function () { select(it); });
+		});
+	}
+
 	return {
 		serviceIcon: serviceIcon,
 		serviceLabel: serviceLabel,
+		commandsForService: commandsForService,
+		commandLabel: commandLabel,
+		buildDropdown: buildDropdown,
 		escapeHtml: escapeHtml,
 		icon: icon,
 		isLearned: isLearned,
