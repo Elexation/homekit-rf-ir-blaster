@@ -4,6 +4,7 @@ namespace config { struct Config; }
 
 void buildAccessories(const config::Config& cfg);   // call once, after homeSpan.begin()
 void applyConfigChange(const config::Config& cfg);  // live add/remove/rename; no caller yet
+void pollPendingSends();                            // call from loop(); drives scheduled repeats
 
 // Command names a device's slots must use, by service type:
 //   power (Switch/Outlet/LightBulb/Fan/Television): on, off, toggle

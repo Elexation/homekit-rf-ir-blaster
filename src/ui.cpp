@@ -2,8 +2,10 @@
 
 #include "HomeSpan.h"
 
+#include "board_pins.h"
+
 namespace {
-constexpr int kPixelPin = 21;  // onboard WS2812 on the ESP32-S3-Zero
+constexpr int kPixelPin = PIN_STATUS_LED;
 Pixel*        g_pixel      = nullptr;
 UiState       g_state      = UiState::Normal;
 bool          g_ledEnabled = true;
@@ -49,7 +51,7 @@ void render() {
 }  // namespace
 
 void initUI() {
-	g_pixel = new Pixel(kPixelPin, "RGB");  // this board's WS2812 is RGB order, not the GRB default
+	g_pixel = new Pixel(kPixelPin, STATUS_LED_COLOR_ORDER);  // color order is board-specific
 	setUiState(UiState::Normal);  // paint status now; HomeSpan's blocking AP loop never reaches updateUI()
 }
 

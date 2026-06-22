@@ -21,6 +21,7 @@
 #include "config_codec.h"
 #include "config_json.h"
 #include "config_validate.h"
+#include "learn.h"
 #include "nvs_blob_store.h"
 #include "settings_change.h"
 #include "ui.h"
@@ -33,7 +34,7 @@ namespace {
 // Config payload ceiling plus slack; rev rides in the query string, not the body.
 constexpr size_t kMaxBody = config::MAX_CONFIG_BYTES + 2048;
 
-// HomeSpan keeps only the SRP verifier; onboarding stores the plaintext code. Shown until onboarded.
+// Shown until onboarding stores the pairing code.
 constexpr char kSetupCodePlaceholder[] = "Not available";
 
 config::Config        g_config;          // authoritative copy; touched only on the httpd task
@@ -46,6 +47,13 @@ enum class Pending { None, Apply, Restart, Factory };
 SemaphoreHandle_t g_lock        = nullptr;
 Pending           g_pending     = Pending::None;
 config::Config    g_pendingCfg;           // valid only when g_pending == Apply
+
+// Learn session: httpd requests start/cancel + polls; the loop task (pollLearnApi) owns the driver. Own mutex.
+enum class LearnPhase : uint8_t { Idle, StartReq, Listening, Captured, Failed, CancelReq };
+SemaphoreHandle_t  g_learnLock   = nullptr;
+LearnPhase         g_learnPhase  = LearnPhase::Idle;
+config::StoredCode g_learnCode;                                 // valid when Captured
+learn::FailReason  g_learnReason = learn::FailReason::Timeout;  // valid when Failed
 
 std::string headerValue(httpd_req_t* req, const char* name) {
 	size_t len = httpd_req_get_hdr_value_len(req, name);
@@ -154,9 +162,8 @@ esp_err_t handleGetStatus(httpd_req_t* req) {
 	return sendJson(req, "200 OK", body);
 }
 
-// Whole-config write: rev guard, host-tested parse/validate/persist, then live apply or
-// (network-setting change) atomic persist-then-restart. Enqueues for the loop task, never
-// mutates the HAP database on the httpd task.
+// Whole-config write: rev guard, parse/validate/persist, then live apply or (network
+// change) persist-then-restart. Enqueues for the loop task; never touches HAP here.
 esp_err_t handlePostConfig(httpd_req_t* req) {
 	esp_err_t err;
 	if (!requireSession(req, err))
@@ -203,18 +210,64 @@ esp_err_t handleFactoryReset(httpd_req_t* req) {
 	return res;
 }
 
-// Capture needs the radios (not yet wired); degrade cleanly.
+const char* failReasonText(learn::FailReason r) {
+	switch (r) {
+		case learn::FailReason::Rolling: return "rolling";
+		case learn::FailReason::Noisy:   return "noisy";
+		case learn::FailReason::Timeout: return "timeout";
+	}
+	return "timeout";
+}
+
+// Arm a capture: request the loop task start the receiver. Non-blocking (httpd stays free).
 esp_err_t handleLearnStart(httpd_req_t* req) {
 	esp_err_t err;
 	if (!requireSession(req, err))
 		return err;
-	return sendJson(req, "200 OK", "{\"ok\":false,\"reason\":\"unavailable\"}");
+	if (g_learnLock) {
+		xSemaphoreTake(g_learnLock, portMAX_DELAY);
+		g_learnPhase = LearnPhase::StartReq;
+		xSemaphoreGive(g_learnLock);
+	}
+	return sendJson(req, "200 OK", "{\"ok\":true}");
+}
+
+// Read-only: report the in-flight capture's outcome for the client's poll loop.
+esp_err_t handleLearnPoll(httpd_req_t* req) {
+	esp_err_t err;
+	if (!requireSession(req, err))
+		return err;
+	LearnPhase         phase = LearnPhase::Idle;
+	config::StoredCode code;
+	learn::FailReason  reason = learn::FailReason::Timeout;
+	if (g_learnLock) {
+		xSemaphoreTake(g_learnLock, portMAX_DELAY);
+		phase = g_learnPhase;
+		if (phase == LearnPhase::Captured)
+			code = g_learnCode;
+		reason = g_learnReason;
+		xSemaphoreGive(g_learnLock);
+	}
+	if (phase == LearnPhase::Captured) {
+		std::string cj;
+		config::codeToJson(code, cj);
+		return sendJson(req, "200 OK", "{\"ok\":true,\"code\":" + cj + "}");
+	}
+	if (phase == LearnPhase::Failed)
+		return sendJson(req, "200 OK",
+		                std::string("{\"ok\":false,\"reason\":\"") + failReasonText(reason) + "\"}");
+	return sendJson(req, "200 OK", "{\"status\":\"listening\"}");
 }
 
 esp_err_t handleLearnCancel(httpd_req_t* req) {
 	esp_err_t err;
 	if (!requireSession(req, err))
 		return err;
+	if (g_learnLock) {
+		xSemaphoreTake(g_learnLock, portMAX_DELAY);
+		g_learnPhase = LearnPhase::CancelReq;
+		xSemaphoreGive(g_learnLock);
+	}
 	return sendJson(req, "200 OK", "{\"ok\":true}");
 }
 
@@ -236,6 +289,7 @@ void configApiBegin(const config::Config& cfg) {
 	g_rev    = 1;
 	g_store  = new config::NvsBlobStore();
 	g_lock   = xSemaphoreCreateMutex();
+	g_learnLock = xSemaphoreCreateMutex();
 
 	// Cache the onboarding-set pairing code once, formatted for display.
 	runtime::AuthStore auth;
@@ -250,6 +304,7 @@ void registerConfigApi(httpd_handle_t server) {
 	registerUri(server, "/api/config", HTTP_POST, handlePostConfig);
 	registerUri(server, "/api/factory-reset", HTTP_POST, handleFactoryReset);
 	registerUri(server, "/api/learn/start", HTTP_GET, handleLearnStart);
+	registerUri(server, "/api/learn/poll", HTTP_GET, handleLearnPoll);
 	registerUri(server, "/api/learn/cancel", HTTP_POST, handleLearnCancel);
 }
 
@@ -280,6 +335,56 @@ void pollConfigApply() {
 			ESP.restart();
 			break;
 		case Pending::None:
+			break;
+	}
+}
+
+// Loop-task owner of the learn driver: reads the httpd-set phase, drives capture, publishes
+// the result. Publishes under g_learnLock but calls the driver outside it (no httpd wait).
+void pollLearnApi() {
+	if (!g_learnLock)
+		return;
+	xSemaphoreTake(g_learnLock, portMAX_DELAY);
+	LearnPhase phase = g_learnPhase;
+	xSemaphoreGive(g_learnLock);
+
+	switch (phase) {
+		case LearnPhase::StartReq:
+			startLearn();
+			xSemaphoreTake(g_learnLock, portMAX_DELAY);
+			if (g_learnPhase == LearnPhase::StartReq)  // honor a cancel that raced the arm
+				g_learnPhase = LearnPhase::Listening;
+			xSemaphoreGive(g_learnLock);
+			break;
+		case LearnPhase::CancelReq:
+			cancelLearn();
+			xSemaphoreTake(g_learnLock, portMAX_DELAY);
+			g_learnPhase = LearnPhase::Idle;
+			xSemaphoreGive(g_learnLock);
+			break;
+		case LearnPhase::Listening: {
+			pollLearn();  // drains bursts, ticks the window, stops RX on a terminal state
+			learn::State st = learnState();
+			if (st == learn::State::Captured) {
+				config::StoredCode code = takeLearnedCode();  // resets the machine to Idle
+				xSemaphoreTake(g_learnLock, portMAX_DELAY);
+				if (g_learnPhase == LearnPhase::Listening) {
+					g_learnCode  = std::move(code);
+					g_learnPhase = LearnPhase::Captured;
+				}
+				xSemaphoreGive(g_learnLock);
+			} else if (st == learn::State::Failed) {
+				learn::FailReason reason = learnFailReason();  // machine self-heals on next begin()
+				xSemaphoreTake(g_learnLock, portMAX_DELAY);
+				if (g_learnPhase == LearnPhase::Listening) {
+					g_learnReason = reason;
+					g_learnPhase  = LearnPhase::Failed;
+				}
+				xSemaphoreGive(g_learnLock);
+			}
+			break;
+		}
+		default:  // Idle / Captured / Failed: terminal result waiting for the client
 			break;
 	}
 }

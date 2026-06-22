@@ -48,6 +48,8 @@ void setup() {
 void loop() {
 	homeSpan.poll();
 	web::pollConfigApply();  // apply queued live config changes / restart on the HomeSpan task
+	web::pollLearnApi();     // drive an in-flight learn capture on the loop task
+	pollPendingSends();      // fire scheduled per-command repeats whose delay elapsed
 	recovery::poll();
 	updateUI();
 }
