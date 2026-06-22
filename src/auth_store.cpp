@@ -1,7 +1,9 @@
 #include "auth_store.h"
 
 #include <nvs_flash.h>
+#include <esp_random.h>
 
+#include <cstdint>
 #include <utility>
 
 namespace runtime {
@@ -11,6 +13,7 @@ constexpr char NVS_NAMESPACE[] = "rfirauth";  // separate from config's "rfirbla
 constexpr char KEY_CRED[]      = "cred";      // PBKDF2 password record
 constexpr char KEY_NONCE[]     = "nonce";     // one-time setup nonce
 constexpr char KEY_CODE[]      = "setupcode"; // plaintext HomeKit pairing code, for display
+constexpr char KEY_OTAPW[]     = "otapw";     // plaintext OTA password, for display
 
 bool readStr(nvs_handle_t h, const char* key, std::string& out) {
 	size_t len = 0;
@@ -90,13 +93,39 @@ bool AuthStore::setSetupCode(const std::string& code) {
 	return nvs_commit(handle_) == ESP_OK;
 }
 
+bool AuthStore::getOtaPassword(std::string& out) {
+	return ok_ && readStr(handle_, KEY_OTAPW, out);
+}
+
+bool AuthStore::setOtaPassword(const std::string& pw) {
+	if (!ok_)
+		return false;
+	if (nvs_set_str(handle_, KEY_OTAPW, pw.c_str()) != ESP_OK)
+		return false;
+	return nvs_commit(handle_) == ESP_OK;
+}
+
 void AuthStore::eraseAll() {
 	if (!ok_)
 		return;
 	nvs_erase_key(handle_, KEY_CRED);
 	nvs_erase_key(handle_, KEY_NONCE);
 	nvs_erase_key(handle_, KEY_CODE);
+	nvs_erase_key(handle_, KEY_OTAPW);
 	nvs_commit(handle_);
+}
+
+std::string makeOtaPassword() {
+	uint8_t buf[16];
+	esp_fill_random(buf, sizeof(buf));
+	static const char kHex[] = "0123456789abcdef";
+	std::string out;
+	out.reserve(sizeof(buf) * 2);
+	for (uint8_t b : buf) {
+		out += kHex[b >> 4];
+		out += kHex[b & 0x0F];
+	}
+	return out;
 }
 
 }  // namespace runtime

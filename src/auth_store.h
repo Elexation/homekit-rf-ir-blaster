@@ -28,11 +28,19 @@ public:
 	bool getSetupCode(std::string& out);  // false if absent; out untouched
 	bool setSetupCode(const std::string& code);
 
-	void eraseAll();  // factory reset: drop credential + nonce + setup code together
+	// Plaintext OTA password, device-local so the config UI can show it for out-of-band
+	// provisioning; HomeSpan keeps only its SHA256 hash.
+	bool getOtaPassword(std::string& out);  // false if absent; out untouched
+	bool setOtaPassword(const std::string& pw);
+
+	void eraseAll();  // factory reset: drop credential, nonce, setup code, OTA password together
 
 private:
 	nvs_handle_t handle_ = 0;
 	bool         ok_     = false;
 };
+
+// 128-bit random hex (32 chars, within HomeSpan's 32-char OTA password limit).
+std::string makeOtaPassword();
 
 }  // namespace runtime

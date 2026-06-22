@@ -8,6 +8,7 @@
 #include "recovery.h"
 #include "web_server.h"
 #include "web_config_api.h"
+#include "auth_store.h"
 
 #include "config_codec.h"
 #include "config_model.h"
@@ -22,6 +23,16 @@ void setup() {
 	homeSpan.enableAutoStartAP();
 	homeSpan.enableWatchdog(60);
 	homeSpan.setConnectionCallback(web::start);  // start the config server on WiFi connect (runs once)
+
+	// Per-device OTA password, created on first boot.
+	// SafeLoad rejects non-HomeSpan images
+	runtime::AuthStore otaStore;
+	std::string otaPw;
+	if (!otaStore.getOtaPassword(otaPw)) {
+		otaPw = runtime::makeOtaPassword();
+		otaStore.setOtaPassword(otaPw);
+	}
+	homeSpan.enableOTA(otaPw.c_str());
 
 	homeSpan.begin(Category::Bridges, "RF-IR Blaster");
 
