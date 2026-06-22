@@ -167,7 +167,7 @@ static void test_magic_corruption_yields_defaults() {
 	TEST_ASSERT_TRUE(r.usedDefaults);
 }
 
-// A schema version the firmware does not understand falls back to defaults.
+// A schema version newer than this firmware understands falls back to defaults.
 static void test_schema_version_mismatch_yields_defaults() {
 	std::vector<uint8_t> blob;
 	TEST_ASSERT_TRUE(encode(sampleConfig(), blob));
@@ -177,6 +177,68 @@ static void test_schema_version_mismatch_yields_defaults() {
 	DecodeResult r = decode(blob);
 	TEST_ASSERT_EQUAL_INT(static_cast<int>(DecodeStatus::BadVersion), static_cast<int>(r.status));
 	TEST_ASSERT_TRUE(r.usedDefaults);
+	TEST_ASSERT_FALSE(r.migrated);
+}
+
+// An older blob is migrated up to the current version with its data intact,
+// not discarded; only the version field changes (identity v1 -> v2 step).
+static void test_old_version_blob_migrates() {
+	Config v1 = sampleConfig();
+	v1.schemaVersion = 1;
+	std::vector<uint8_t> blob;
+	TEST_ASSERT_TRUE(encode(v1, blob));
+	TEST_ASSERT_EQUAL_UINT8(1, blob[4]);  // stamped as v1
+
+	DecodeResult r = decode(blob);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(DecodeStatus::Ok), static_cast<int>(r.status));
+	TEST_ASSERT_FALSE(r.usedDefaults);
+	TEST_ASSERT_TRUE(r.migrated);
+	TEST_ASSERT_EQUAL_UINT16(SCHEMA_VERSION, r.config.schemaVersion);
+	assertConfigEqual(sampleConfig(), r.config);  // sample defaults to the current version
+}
+
+// load() persists the upgrade, so the next boot sees a current-version blob
+// and does not migrate again.
+static void test_load_persists_migration() {
+	Config v1 = sampleConfig();
+	v1.schemaVersion = 1;
+	MemoryBlobStore store;
+	TEST_ASSERT_TRUE(save(store, v1));  // a genuine v1 blob on the store
+
+	DecodeResult r = load(store);  // migrates, then re-saves
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(DecodeStatus::Ok), static_cast<int>(r.status));
+	TEST_ASSERT_TRUE(r.migrated);
+
+	std::vector<uint8_t> stored;
+	TEST_ASSERT_TRUE(store.get(stored));
+	TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(SCHEMA_VERSION), stored[4]);  // upgrade persisted
+
+	DecodeResult again = load(store);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(DecodeStatus::Ok), static_cast<int>(again.status));
+	TEST_ASSERT_FALSE(again.migrated);
+	assertConfigEqual(sampleConfig(), again.config);
+}
+
+// A current-version blob is not flagged migrated (idempotent).
+static void test_current_version_not_migrated() {
+	std::vector<uint8_t> blob;
+	TEST_ASSERT_TRUE(encode(sampleConfig(), blob));
+	DecodeResult r = decode(blob);
+	TEST_ASSERT_EQUAL_INT(static_cast<int>(DecodeStatus::Ok), static_cast<int>(r.status));
+	TEST_ASSERT_FALSE(r.migrated);
+}
+
+// The import path (fromJson, no binary envelope) also upgrades an old backup.
+static void test_import_old_version_json_migrates() {
+	Config v1 = sampleConfig();
+	v1.schemaVersion = 1;
+	std::string json;
+	TEST_ASSERT_TRUE(toJson(v1, json));  // JSON declares schemaVersion 1
+
+	Config parsed;
+	TEST_ASSERT_TRUE(fromJson(json.c_str(), json.size(), parsed));
+	TEST_ASSERT_EQUAL_UINT16(SCHEMA_VERSION, parsed.schemaVersion);
+	assertConfigEqual(sampleConfig(), parsed);
 }
 
 // Input past the byte ceiling is refused before parsing.
@@ -625,6 +687,10 @@ int main(int, char**) {
 	RUN_TEST(test_crc_corruption_yields_defaults);
 	RUN_TEST(test_magic_corruption_yields_defaults);
 	RUN_TEST(test_schema_version_mismatch_yields_defaults);
+	RUN_TEST(test_old_version_blob_migrates);
+	RUN_TEST(test_load_persists_migration);
+	RUN_TEST(test_current_version_not_migrated);
+	RUN_TEST(test_import_old_version_json_migrates);
 	RUN_TEST(test_oversize_json_rejected);
 	RUN_TEST(test_encode_over_byte_ceiling_rejected);
 	RUN_TEST(test_too_many_devices_rejected);

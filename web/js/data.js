@@ -5,7 +5,7 @@ window.BlasterData = (function () {
 
 	// Mirror the config layer so the import UI can reject before sending.
 	var MAX_CONFIG_BYTES = 16384;
-	var SCHEMA_VERSION = 1;
+	var SCHEMA_VERSION = 2;
 
 	// Merge base before the first server read.
 	var DEFAULTS = {

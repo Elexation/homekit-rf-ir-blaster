@@ -64,7 +64,8 @@ DecodeResult decode(const std::vector<uint8_t>& blob) {
 		r.status = DecodeStatus::BadMagic;
 		return r;
 	}
-	if (getU16(p + 4) != SCHEMA_VERSION) {
+	const uint16_t storedVer = getU16(p + 4);
+	if (storedVer > SCHEMA_VERSION) {  // unknown future layout; an older one is migrated below
 		r.status = DecodeStatus::BadVersion;
 		return r;
 	}
@@ -93,6 +94,7 @@ DecodeResult decode(const std::vector<uint8_t>& blob) {
 	r.config = std::move(parsed);
 	r.status = DecodeStatus::Ok;
 	r.usedDefaults = false;
+	r.migrated = storedVer < SCHEMA_VERSION;  // fromJson upgraded the parsed doc to current
 	return r;
 }
 
@@ -105,7 +107,10 @@ bool save(IBlobStore& store, const Config& cfg) {
 DecodeResult load(IBlobStore& store) {
 	std::vector<uint8_t> blob;
 	if (!store.get(blob)) return DecodeResult{};  // Absent -> defaults
-	return decode(blob);
+	DecodeResult r = decode(blob);
+	if (r.status == DecodeStatus::Ok && r.migrated)
+		save(store, r.config);  // persist the upgrade; best-effort, the in-RAM config stands either way
+	return r;
 }
 
 }  // namespace config

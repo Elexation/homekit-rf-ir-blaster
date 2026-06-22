@@ -81,6 +81,20 @@ bool codeToJson(const StoredCode& code, std::string& out) {
 	return true;
 }
 
+// Migrate a parsed config doc in place to SCHEMA_VERSION; false if it is
+// newer than this firmware understands (caller falls back to defaults).
+static bool migrateDoc(JsonDocument& doc, uint16_t fromVersion) {
+	if (fromVersion > SCHEMA_VERSION) return false;
+	for (uint16_t v = fromVersion; v < SCHEMA_VERSION; ++v) {
+		switch (v) {
+			case 1: break;  // v1 -> v2: layout-identical, no field change
+			default: return false;  // gap in the migration chain
+		}
+	}
+	doc["schemaVersion"] = SCHEMA_VERSION;
+	return true;
+}
+
 bool fromJson(const char* data, size_t len, Config& out) {
 	if (len > MAX_CONFIG_BYTES) return false;
 
@@ -88,6 +102,9 @@ bool fromJson(const char* data, size_t len, Config& out) {
 	const DeserializationError err = deserializeJson(
 		doc, data, len, DeserializationOption::NestingLimit(NESTING_LIMIT));
 	if (err) return false;
+
+	const uint16_t fromVersion = doc["schemaVersion"] | static_cast<uint16_t>(SCHEMA_VERSION);
+	if (!migrateDoc(doc, fromVersion)) return false;  // unknown future version
 
 	out = Config{};
 

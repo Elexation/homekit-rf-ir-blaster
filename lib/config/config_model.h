@@ -20,8 +20,9 @@ struct IRCode {
 
 namespace config {
 
-// Bumped only on an incompatible persisted/exported layout change.
-constexpr uint16_t SCHEMA_VERSION = 1;
+// Persisted/exported layout version; migrateDoc (config_json.cpp) handles
+// version mismatch on load.
+constexpr uint16_t SCHEMA_VERSION = 2;
 
 // Load/import bounds so a malformed or oversized blob can't exhaust memory.
 constexpr size_t  MAX_CONFIG_BYTES = 16384;  // serialized JSON payload ceiling

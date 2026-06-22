@@ -29,6 +29,7 @@ struct DecodeResult {
 	Config       config;                       // defaults whenever usedDefaults
 	DecodeStatus status       = DecodeStatus::Absent;
 	bool         usedDefaults = true;
+	bool         migrated     = false;         // stored version was older and was upgraded
 };
 
 // Serialize cfg to [magic][version][len][crc32] + JSON payload; false if over the byte ceiling.
