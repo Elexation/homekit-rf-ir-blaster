@@ -11,6 +11,10 @@ UiState       g_state      = UiState::Normal;
 bool          g_ledEnabled = true;
 int           g_lastKey    = -1;
 
+// HomeSpan never clears HS_OTA_STARTED after a failed OTA (its error path only logs), so the LED sticks.
+HS_STATUS          g_lastRealStatus = HS_WIFI_NEEDED;
+constexpr uint32_t kOtaStaleSec     = 90;
+
 // Collapse paired and connected to one green so the LED doesn't flicker as controllers come and go.
 Pixel::Color statusColor(HS_STATUS s) {
 	switch (s) {
@@ -31,14 +35,21 @@ void render() {
 		case UiState::FactoryArmed:  c = Pixel::RGB(255, 0, 0);   key = 2; break;
 		case UiState::SafeMode:      c = Pixel::RGB(0, 60, 255);  key = 3; break;
 		default: {
-			HS_STATUS s = homeSpan.getStatus().first;
-			bool healthy = (s == HS_PAIRED || s == HS_CONNECTED);
+			std::pair<HS_STATUS, uint32_t> st = homeSpan.getStatus();
+			HS_STATUS eff = st.first;
+			if (st.first == HS_OTA_STARTED) {
+				if (st.second >= kOtaStaleSec)  // success reboots, so a long-lived HS_OTA_STARTED means it failed
+					eff = g_lastRealStatus;
+			} else {
+				g_lastRealStatus = st.first;
+			}
+			bool healthy = (eff == HS_PAIRED || eff == HS_CONNECTED);
 			if (healthy) {  // one key for both, so it never re-draws between paired and connected
-				c   = g_ledEnabled ? statusColor(s) : Pixel::RGB(0, 0, 0);
+				c   = g_ledEnabled ? statusColor(eff) : Pixel::RGB(0, 0, 0);
 				key = g_ledEnabled ? 201 : 200;
 			} else {
-				c   = statusColor(s);
-				key = 100 + static_cast<int>(s);
+				c   = statusColor(eff);
+				key = 100 + static_cast<int>(eff);
 			}
 			break;
 		}
