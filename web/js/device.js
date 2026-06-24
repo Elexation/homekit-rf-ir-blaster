@@ -91,14 +91,28 @@
 		var badge = rc > 1
 			? '<span class="cmd__repeat">×' + rc + (rd ? ' · ' + rd + ' ms' : '') + '</span>'
 			: '';
+		var name = UI.escapeHtml(c.name);
+		var label = UI.escapeHtml(UI.commandLabel(c.name));
+		if (!UI.isLearned(c)) {
+			return '<div class="list__row list__row--unlearned">' +
+				'<div class="list__grow">' +
+					'<div class="cmd__name">' + label +
+						'<span class="pill pill--warn pill--xs">Not learned</span></div>' +
+				'</div>' +
+				'<div class="cmd__actions">' +
+					'<button class="btn btn--soft btn--sm" data-learn-cmd="' + name + '">' + UI.icon('i-plus', 15) + 'Learn</button>' +
+					'<button class="icon-btn" data-delete-cmd="' + name + '" aria-label="Delete command">' + UI.icon('i-trash', 16) + '</button>' +
+				'</div>' +
+			'</div>';
+		}
 		return '<div class="list__row">' +
 			'<div class="list__grow">' +
-				'<div>' + UI.escapeHtml(UI.commandLabel(c.name)) + badge + '</div>' +
+				'<div>' + label + badge + '</div>' +
 				'<div class="cmd__detail">' + UI.escapeHtml(UI.codeDetail(c)) + '</div>' +
 			'</div>' +
 			'<div class="cmd__actions">' +
-				'<button class="btn btn--ghost btn--sm" data-edit="' + UI.escapeHtml(c.name) + '">Edit</button>' +
-				'<button class="icon-btn" data-delete-cmd="' + UI.escapeHtml(c.name) + '" aria-label="Delete command">' + UI.icon('i-trash', 16) + '</button>' +
+				'<button class="btn btn--ghost btn--sm" data-edit="' + name + '">Edit</button>' +
+				'<button class="icon-btn" data-delete-cmd="' + name + '" aria-label="Delete command">' + UI.icon('i-trash', 16) + '</button>' +
 			'</div>' +
 		'</div>';
 	}
@@ -152,7 +166,7 @@
 		var d = device();
 		UI.confirmDialog({
 			title: 'Delete “' + d.name + '”?',
-			message: 'It also disappears from the Home app.',
+			message: 'It also disappears from the Home app. Any Home app scenes or automations that use it will stop working until you remove or update them.',
 			confirmLabel: 'Delete',
 			danger: true
 		}).then(function (ok) {
@@ -239,6 +253,21 @@
 
 		page.querySelectorAll('[data-delete-cmd]').forEach(function (b) {
 			b.addEventListener('click', function () { deleteCommand(b.getAttribute('data-delete-cmd')); });
+		});
+		page.querySelectorAll('[data-learn-cmd]').forEach(function (b) {
+			b.addEventListener('click', function () {
+				window.BlasterLearn.open({
+					config: state.config,
+					rev: state.rev,
+					deviceId: state.id,
+					command: b.getAttribute('data-learn-cmd'),
+					onSaved: function (res) {
+						state.config = res.config;
+						state.rev = res.rev;
+						render();
+					}
+				});
+			});
 		});
 		var learn = page.querySelector('[data-action="learn"]');
 		if (learn) learn.addEventListener('click', function () {

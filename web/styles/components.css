@@ -42,7 +42,9 @@
 .pill--quiet { background: var(--surface-alt); color: var(--sub); }
 .pill--good { background: var(--good-soft); color: var(--good-ink); }
 .pill--accent { background: var(--accent-soft); color: var(--accent); }
+.pill--warn { background: var(--warn-bg); color: var(--warn-ink); }
 .pill--sub { color: var(--sub); }
+.pill--xs { padding: 3px 9px; font-size: 11px; font-weight: 600; }
 .pill__dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
 .pill--good .pill__dot { background: var(--good); }
 

@@ -179,6 +179,21 @@ window.BlasterLearn = (function () {
 		function renderAssign() {
 			// Device page: target is locked, no picker.
 			var locked = opts.deviceId != null ? Data.findDevice(opts.config, opts.deviceId) : null;
+			// Per-slot learn: the command is fixed too, so lock it and skip the picker.
+			var lockedCmd = opts.command || null;
+			var cmdField = lockedCmd
+				? '<div class="learn-field">' +
+						'<div class="ctl__label">Command</div>' +
+						'<div class="field">' + UI.escapeHtml(UI.commandLabel(lockedCmd)) + '</div>' +
+					'</div>'
+				: '<div class="learn-field" data-cmd-field>' +
+						'<label class="ctl__label" for="learn-cmd">Command</label>' +
+						'<div data-dd-command></div>' +
+					'</div>' +
+					'<div class="learn-field" data-cmd-full hidden>' +
+						'<div class="learn-note learn-note--warn">' + UI.icon('i-signal', 16) +
+							'<span>Every command for this device is already learned. Delete one to free a slot.</span></div>' +
+					'</div>';
 			var deviceField = '';
 			if (locked) {
 				deviceField = '<div class="learn-field">' +
@@ -192,14 +207,7 @@ window.BlasterLearn = (function () {
 				'</div>';
 			}
 			modal.innerHTML = head('Name &amp; assign', 3) +
-				'<div class="learn-field" data-cmd-field>' +
-					'<label class="ctl__label" for="learn-cmd">Command</label>' +
-					'<div data-dd-command></div>' +
-				'</div>' +
-				'<div class="learn-field" data-cmd-full hidden>' +
-					'<div class="learn-note learn-note--warn">' + UI.icon('i-signal', 16) +
-						'<span>Every command for this device is already learned. Delete one to free a slot.</span></div>' +
-				'</div>' +
+				cmdField +
 				deviceField +
 				'<div class="learn-field" data-new-name hidden>' +
 					'<label class="ctl__label" for="learn-dev-name">Device name</label>' +
@@ -212,7 +220,7 @@ window.BlasterLearn = (function () {
 				'</div>' +
 				'<div class="modal__actions">' +
 					'<button class="btn btn--ghost" data-back>Back</button>' +
-					'<button class="btn btn--primary" data-save>Save command</button>' +
+					'<button class="btn btn--primary" data-save' + (lockedCmd ? ' data-autofocus' : '') + '>Save command</button>' +
 				'</div>';
 			modal.setAttribute('aria-label', 'Name & assign');
 
@@ -273,8 +281,12 @@ window.BlasterLearn = (function () {
 				state.service = v;
 				refreshCommandOptions();
 			});
-			refreshNew();
-			refreshCommandOptions();
+			if (lockedCmd) {
+				state.command = lockedCmd;
+			} else {
+				refreshNew();
+				refreshCommandOptions();
+			}
 			modal.querySelector('[data-back]').addEventListener('click', function () { setStep('captured'); });
 			modal.querySelector('[data-save]').addEventListener('click', save);
 		}
