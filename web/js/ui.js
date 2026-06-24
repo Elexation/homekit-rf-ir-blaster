@@ -305,6 +305,17 @@ window.BlasterUI = (function () {
 		});
 	}
 
+	// Safe mode banner
+	function safeBanner(container, status) {
+		if (!container || !status || !status.safeMode) return;
+		container.innerHTML = '<div class="banner banner--warn" role="status">' +
+			icon('i-signal', 18) +
+			'<div class="banner__text"><strong>Safe mode:</strong> the device is running on recovery ' +
+			'network defaults (plain HTTP), so the config page stays reachable. Your saved settings are ' +
+			'unchanged. Adjust your web-access settings if needed, then Save &amp; Restart to return to normal.' +
+			'</div></div>';
+	}
+
 	return {
 		serviceIcon: serviceIcon,
 		serviceLabel: serviceLabel,
@@ -313,6 +324,7 @@ window.BlasterUI = (function () {
 		buildDropdown: buildDropdown,
 		escapeHtml: escapeHtml,
 		icon: icon,
+		safeBanner: safeBanner,
 		isLearned: isLearned,
 		protoLabel: protoLabel,
 		codeDetail: codeDetail,

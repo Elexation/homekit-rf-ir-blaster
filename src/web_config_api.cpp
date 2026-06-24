@@ -23,6 +23,7 @@
 #include "config_validate.h"
 #include "learn.h"
 #include "nvs_blob_store.h"
+#include "recovery.h"
 #include "settings_change.h"
 #include "ui.h"
 #include "web_auth.h"
@@ -160,7 +161,8 @@ esp_err_t handleGetStatus(httpd_req_t* req) {
 	std::string code = g_setupCode.empty() ? kSetupCodePlaceholder : g_setupCode;
 	std::string body = "{\"ip\":\"" + ip + "\",\"wifi\":\"" + wifi + "\",\"setupCode\":\"" +
 	                   code + "\",\"pairing\":\"" + pairingText() + "\",\"otaPassword\":\"" +
-	                   g_otaPassword + "\"}";
+	                   g_otaPassword + "\",\"safeMode\":" +
+	                   (recovery::inSafeMode() ? "true" : "false") + "}";
 	return sendJson(req, "200 OK", body);
 }
 

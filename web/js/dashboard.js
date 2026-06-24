@@ -136,6 +136,7 @@
 			state.rev = r[0].rev;
 			state.status = r[1];
 			fillHeader(state.config, state.status);
+			UI.safeBanner(document.querySelector('[data-safe-banner]'), state.status);
 			renderStats(state.config);
 			renderMain(state.config, state.status);
 			wireLearn();

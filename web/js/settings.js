@@ -361,6 +361,7 @@
 		state.rev = r[0].rev;
 		state.config = r[0].config;
 		populate(r[0].config, r[1]);
+		UI.safeBanner(document.querySelector('[data-safe-banner]'), r[1]);
 		wire();
 	});
 })();

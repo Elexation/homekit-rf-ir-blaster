@@ -48,6 +48,11 @@
 .pill__dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
 .pill--good .pill__dot { background: var(--good); }
 
+.banner { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--r-card); margin-bottom: 18px; }
+.banner--warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-ink); }
+.banner__text { font-size: 13.5px; line-height: 1.45; }
+.banner .icon { flex: none; margin-top: 1px; }
+
 /* Link/button pills are interactive; status pills (span) stay inert. */
 a.pill, button.pill { transition: color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
 a.pill:active, button.pill:active { transform: scale(0.97); }
