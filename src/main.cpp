@@ -62,19 +62,8 @@ void setup() {
 	buildAccessories(res.config);
 }
 
-// Recover HomeSpan's "No Response" zombie: prolonged HS_PAIRED = mDNS died, reboot re-advertises.
-static void checkHomeKitLiveness() {
-	static constexpr uint32_t kStuckPairedSec = 300;
-	std::pair<HS_STATUS, uint32_t> st = homeSpan.getStatus();
-	if (st.first == HS_PAIRED && st.second >= kStuckPairedSec) {
-		Serial.printf("liveness: HS_PAIRED stuck %us, rebooting to refresh mDNS\n", st.second);
-		homeSpan.processSerialCommand("R");
-	}
-}
-
 void loop() {
 	homeSpan.poll();
-	checkHomeKitLiveness();
 	web::pollConfigApply();  // apply queued live config changes / restart on the HomeSpan task
 	web::pollLearnApi();     // drive an in-flight learn capture on the loop task
 	pollPendingSends();      // fire scheduled per-command repeats whose delay elapsed
