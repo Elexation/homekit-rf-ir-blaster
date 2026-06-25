@@ -3,7 +3,7 @@
 #include "config_model.h"
 
 void initIR();
-void sendIR(const IRCode& code);
+bool sendIR(const IRCode& code);
 
 // IR receive (learn capture); driven by src/learn.cpp.
 void startIRRx();

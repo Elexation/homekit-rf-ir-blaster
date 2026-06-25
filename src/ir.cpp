@@ -75,9 +75,13 @@ void initIR() {
 	Serial.println("[ir] RMT RX ready on GP2");
 }
 
-void sendIR(const IRCode& code) {
+bool sendIR(const IRCode& code) {
 	if (!code.pulses || code.length < 2 || (code.length & 1))
-		return;
+		return false;
+	if (s_rxEnabled) {  // a learn holds the IR RX; the TSMP would hear our own LED
+		Serial.println("[ir] sendIR: IR RX active, TX skipped");
+		return false;
+	}
 
 	uint16_t carrier = code.carrierHz;
 	if (carrier < kCarrierMinHz || carrier > kCarrierMaxHz)
@@ -95,13 +99,13 @@ void sendIR(const IRCode& code) {
 	esp_err_t e = rmt_new_tx_channel(&cfg, &tx);
 	if (e != ESP_OK) {
 		Serial.printf("[ir] rmt_new_tx_channel failed: %s\n", esp_err_to_name(e));
-		return;
+		return false;
 	}
 	rmt_encoder_handle_t enc = nullptr;
 	rmt_copy_encoder_config_t ec = {};
 	if (rmt_new_copy_encoder(&ec, &enc) != ESP_OK) {
 		rmt_del_channel(tx);
-		return;
+		return false;
 	}
 	rmt_carrier_config_t carrierCfg = {};
 	carrierCfg.frequency_hz = carrier;
@@ -113,21 +117,25 @@ void sendIR(const IRCode& code) {
 	if (rmt_enable(tx) != ESP_OK) {
 		rmt_del_encoder(enc);
 		rmt_del_channel(tx);
-		return;
+		return false;
 	}
 
 	size_t symbols = packPulsesToSymbols(code.pulses, code.length, s_symbols, kMaxSymbols);
+	bool sent = false;
 	if (symbols > 0) {
 		rmt_transmit_config_t tc = {};
 		tc.loop_count = 0;
 		tc.flags.eot_level = 0;  // idle low after the frame -> LED off
-		if (rmt_transmit(tx, enc, s_symbols, symbols * sizeof(rmt_symbol_word_t), &tc) == ESP_OK)
+		if (rmt_transmit(tx, enc, s_symbols, symbols * sizeof(rmt_symbol_word_t), &tc) == ESP_OK) {
 			rmt_tx_wait_all_done(tx, 1000);
+			sent = true;
+		}
 	}
 
 	rmt_disable(tx);
 	rmt_del_encoder(enc);
 	rmt_del_channel(tx);
+	return sent;
 }
 
 void startIRRx() {

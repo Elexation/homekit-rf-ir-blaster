@@ -29,7 +29,7 @@ static const config::CommandSlot* resolveSlot(uint16_t aid, const char* name) {
 	return nullptr;
 }
 
-// Fire one resolved code now; false if nothing learned.
+// Fire one resolved code now; false if nothing learned or the send was refused/failed.
 static bool fireCode(const config::StoredCode* sc) {
 	if (!sc || !sc->isLearned())
 		return false;
@@ -42,22 +42,18 @@ static bool fireCode(const config::StoredCode* sc) {
 			maxRep = 1;
 		if (reps > maxRep)
 			reps = static_cast<uint8_t>(maxRep);
-		if (reps <= 1) {
-			sendRFCode(sc->freqMHz, sc->asRFCode());
-		} else {
-			std::vector<uint16_t> burst;
-			burst.reserve(reps * unit);
-			for (uint8_t r = 0; r < reps; ++r)
-				burst.insert(burst.end(), sc->pulses.begin(), sc->pulses.end());
-			RFCode code{ burst.data(), static_cast<uint16_t>(burst.size()), sc->freqMHz };
-			sendRFCode(sc->freqMHz, code);
-		}
-	} else if (sc->kind == config::CodeKind::IR) {
-		sendIR(sc->asIRCode());
-	} else {
-		return false;
+		if (reps <= 1)
+			return sendRFCode(sc->freqMHz, sc->asRFCode());
+		std::vector<uint16_t> burst;
+		burst.reserve(reps * unit);
+		for (uint8_t r = 0; r < reps; ++r)
+			burst.insert(burst.end(), sc->pulses.begin(), sc->pulses.end());
+		RFCode code{ burst.data(), static_cast<uint16_t>(burst.size()), sc->freqMHz };
+		return sendRFCode(sc->freqMHz, code);
 	}
-	return true;
+	if (sc->kind == config::CodeKind::IR)
+		return sendIR(sc->asIRCode());
+	return false;
 }
 
 // A command's remaining timed sends, scheduled off the loop task. Codes re-resolve
@@ -86,7 +82,8 @@ static bool transmit(uint16_t aid, const char* name) {
 		return false;
 	if (aidBusy(aid))
 		return true;
-	fireCode(&slot->code);
+	if (!fireCode(&slot->code))
+		return false;  // refused (learn active) or send failed: revert the tile, schedule no repeats
 
 	uint8_t count = slot->repeatCount;
 	if (count < 1)

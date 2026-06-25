@@ -298,7 +298,7 @@ bool collapseBand(RfBand& b, uint16_t* out, size_t cap, size_t* outLen) {
 	return true;
 }
 
-void transmitOOK(RfBand& b, const RFCode& code) {
+bool transmitOOK(RfBand& b, const RFCode& code) {
 	writeBurst(*b.spi, b.cs, kRegPatable, b.paTable, kPaTableLen);
 	// Idle first so the CC1101 isn't driving GDO0 when the RMT TX channel takes the pad (never pinMode it).
 	strobe(*b.spi, b.cs, kSidle);
@@ -314,23 +314,24 @@ void transmitOOK(RfBand& b, const RFCode& code) {
 	esp_err_t e = rmt_new_tx_channel(&cfg, &tx);
 	if (e != ESP_OK) {
 		Serial.printf("[rf] rmt_new_tx_channel failed: %s\n", esp_err_to_name(e));
-		return;
+		return false;
 	}
 	rmt_encoder_handle_t enc = nullptr;
 	rmt_copy_encoder_config_t ec = {};
 	e = rmt_new_copy_encoder(&ec, &enc);
 	if (e != ESP_OK) {
 		rmt_del_channel(tx);
-		return;
+		return false;
 	}
 	e = rmt_enable(tx);
 	if (e != ESP_OK) {
 		rmt_del_encoder(enc);
 		rmt_del_channel(tx);
-		return;
+		return false;
 	}
 
 	size_t symbols = packPulsesToSymbols(code.pulses, code.length, s_rfTxBuf, kRfMaxSymbols);
+	bool sent = false;
 	if (symbols > 0) {
 		strobe(*b.spi, b.cs, kStx);  // MCSM0=0x18 auto-calibrates IDLE->TX
 		// Let the VCO auto-cal (~0.8 ms) finish before keying, or PA spikes smear the carrier.
@@ -339,14 +340,17 @@ void transmitOOK(RfBand& b, const RFCode& code) {
 		tc.loop_count = 0;
 		tc.flags.eot_level = 0;  // idle low after the frame -> PA off
 		e = rmt_transmit(tx, enc, s_rfTxBuf, symbols * sizeof(rmt_symbol_word_t), &tc);
-		if (e == ESP_OK)
+		if (e == ESP_OK) {
 			rmt_tx_wait_all_done(tx, 1000);
+			sent = true;
+		}
 	}
 
 	strobe(*b.spi, b.cs, kSidle);
 	rmt_disable(tx);
 	rmt_del_encoder(enc);
 	rmt_del_channel(tx);
+	return sent;
 }
 
 }  // namespace
@@ -375,17 +379,17 @@ bool pollRFBurst(uint16_t freqMHz, uint16_t* out, size_t cap, size_t* outLen) {
 	return b ? collapseBand(*b, out, cap, outLen) : false;
 }
 
-void sendRFCode(uint16_t freqMHz, const RFCode& code) {
+bool sendRFCode(uint16_t freqMHz, const RFCode& code) {
 	if (!code.pulses || code.length < 2 || (code.length & 1))
-		return;
+		return false;
 	RfBand* b = bandFor(freqMHz);
 	if (!b) {  // only 315 and 433 are configured
 		Serial.printf("[rf] sendRFCode: unsupported band %u MHz\n", freqMHz);
-		return;
+		return false;
 	}
 	if (b->rx) {  // a learn capture holds the RMT slot; can't TX while receiving
 		Serial.println("[rf] sendRFCode: RF RX active, TX skipped");
-		return;
+		return false;
 	}
-	transmitOOK(*b, code);
+	return transmitOOK(*b, code);
 }
