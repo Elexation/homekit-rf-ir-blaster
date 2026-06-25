@@ -1,4 +1,5 @@
 #include "HomeSpan.h"
+#include "SpanRollback.h"  // hand OTA mark-valid to the sketch so the bootloader can auto-revert an early-boot crash
 
 #include "radios.h"
 #include "ir.h"
@@ -14,6 +15,11 @@
 #include "config_model.h"
 #include "nvs_blob_store.h"
 
+static void markOtaImageGood() {
+	homeSpan.markSketchOK();
+	Serial.println("ota: image validated");
+}
+
 void setup() {
 	Serial.begin(115200);
 
@@ -23,6 +29,7 @@ void setup() {
 	homeSpan.enableAutoStartAP();
 	homeSpan.enableWatchdog(60);
 	homeSpan.setConnectionCallback(web::start);  // start the config server on WiFi connect (runs once)
+	homeSpan.setPollingCallback(markOtaImageGood);  // mark the OTA image good once the first poll proves boot succeeded
 
 	// Per-device password so OTA never ships HomeSpan's public default; created on first boot.
 	runtime::AuthStore otaStore;
