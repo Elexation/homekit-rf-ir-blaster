@@ -90,6 +90,7 @@ esp_err_t sendJson(httpd_req_t* req, const char* status, const std::string& body
 	httpd_resp_set_status(req, status);
 	httpd_resp_set_type(req, "application/json");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+	httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
 	return httpd_resp_send(req, body.c_str(), body.size());
 }
 
@@ -368,7 +369,8 @@ void pollConfigApply() {
 void pollLearnApi() {
 	if (!g_learnLock)
 		return;
-	xSemaphoreTake(g_learnLock, portMAX_DELAY);
+	if (xSemaphoreTake(g_learnLock, 0) != pdTRUE)
+		return;  // non-blocking: never stall loop() on the httpd learn handlers
 	LearnPhase phase = g_learnPhase;
 	xSemaphoreGive(g_learnLock);
 

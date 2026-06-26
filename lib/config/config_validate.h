@@ -23,6 +23,8 @@ enum class ValidateError {
 	ReservedListenPort,
 	DomainTooLong,
 	BadCanonicalDomain,
+	NameTooLong,
+	BadRollingFlag,
 };
 
 // Structural bounds and invariants; byte-size and depth ceilings live in the codec.

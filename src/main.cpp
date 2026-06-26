@@ -1,5 +1,6 @@
 #include "HomeSpan.h"
 #include "SpanRollback.h"  // hand OTA mark-valid to the sketch so the bootloader can auto-revert an early-boot crash
+#include "bootloader_random.h"  // HW entropy source for the pre-RF first-boot OTA-password mint
 
 #include "radios.h"
 #include "ir.h"
@@ -35,7 +36,10 @@ void setup() {
 	runtime::AuthStore otaStore;
 	std::string otaPw;
 	if (!otaStore.getOtaPassword(otaPw)) {
+		// This mint runs before begin() enables RF, so seed the SAR-ADC entropy source for the draw.
+		bootloader_random_enable();
 		otaPw = runtime::makeOtaPassword();
+		bootloader_random_disable();
 		otaStore.setOtaPassword(otaPw);
 	}
 	homeSpan.enableOTA(otaPw.c_str());

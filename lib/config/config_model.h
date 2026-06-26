@@ -27,6 +27,7 @@ constexpr uint16_t SCHEMA_VERSION = 2;
 // Load/import bounds so a malformed or oversized blob can't exhaust memory.
 constexpr size_t  MAX_CONFIG_BYTES = 16384;  // serialized JSON payload ceiling
 constexpr size_t  MAX_DEVICES      = 32;
+constexpr size_t  MAX_NAME_LEN     = 32;     // device/command name ceiling; mirrors the web UI input
 constexpr size_t  MAX_PULSES       = 512;    // uint16_t entries per code
 constexpr uint8_t NESTING_LIMIT    = 6;      // JSON object/array depth ceiling
 constexpr uint8_t  MAX_REPEAT_COUNT    = 10;    // sends per press ceiling (UI, validate, transmit)

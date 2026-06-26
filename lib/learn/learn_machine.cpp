@@ -96,7 +96,7 @@ void LearnMachine::feedBurst(Source src, const uint16_t* pulses, size_t len,
 			fp = declipped.data();
 			fl = dl;
 			if (gap > 0)
-				t.resetGapUs = gap;
+				t.resetGapUs = std::max(t.resetGapUs, gap);  // keep the longest gap across presses
 			if (frames > 1 && frames > t.frameCount)
 				t.frameCount = frames;
 		}

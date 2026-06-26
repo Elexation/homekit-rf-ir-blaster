@@ -8,9 +8,6 @@
 
 namespace config {
 
-// Device/command name ceiling; mirrors the web UI input limit.
-constexpr size_t MAX_NAME_LEN = 32;
-
 enum class MutateError : uint8_t {
 	Ok = 0,
 	BadName,           // empty or over MAX_NAME_LEN

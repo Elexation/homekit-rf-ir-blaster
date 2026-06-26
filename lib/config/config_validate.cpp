@@ -79,8 +79,14 @@ ValidateError validate(const Config& cfg) {
 			return ValidateError::NextIdNotMonotonic;
 		if (d.service.empty())
 			return ValidateError::BadService;
+		if (d.service.size() > MAX_NAME_LEN)
+			return ValidateError::NameTooLong;
+		if (d.name.size() > MAX_NAME_LEN)
+			return ValidateError::NameTooLong;
 
 		for (const auto& slot : d.commands) {
+			if (slot.name.size() > MAX_NAME_LEN)
+				return ValidateError::NameTooLong;
 			if (slot.repeatCount < 1 || slot.repeatCount > MAX_REPEAT_COUNT)
 				return ValidateError::BadRepeatCount;
 			if (slot.repeatDelayMs > MAX_REPEAT_DELAY_MS)
@@ -97,6 +103,8 @@ ValidateError validate(const Config& cfg) {
 			if (code.kind == CodeKind::RF) {
 				if (code.freqMHz != 315 && code.freqMHz != 433)
 					return ValidateError::BadRfFreq;
+				if (code.rolling)  // rolling codes are unreplayable; rejected at learn, never stored
+					return ValidateError::BadRollingFlag;
 			} else if (code.kind == CodeKind::IR) {
 				if (code.carrierHz < 20000 || code.carrierHz > 60000)
 					return ValidateError::BadIrCarrier;

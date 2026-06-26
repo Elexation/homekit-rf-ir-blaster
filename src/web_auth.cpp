@@ -153,6 +153,7 @@ esp_err_t sendJson(httpd_req_t* req, const char* status, const std::string& body
 	httpd_resp_set_status(req, status);
 	httpd_resp_set_type(req, "application/json");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+	httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
 	return httpd_resp_send(req, body.c_str(), body.size());
 }
 
@@ -193,6 +194,7 @@ esp_err_t handleCsrf(httpd_req_t* req) {
 	httpd_resp_set_hdr(req, "Set-Cookie", cookie.c_str());
 	httpd_resp_set_type(req, "text/plain");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+	httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
 	return httpd_resp_send(req, tok.c_str(), tok.size());
 }
 

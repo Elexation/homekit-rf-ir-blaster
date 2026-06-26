@@ -112,8 +112,12 @@ bool sendIR(const IRCode& code) {
 	carrierCfg.duty_cycle = 0.33f;
 	carrierCfg.flags.polarity_active_low = 0;  // carrier rides the mark level
 	e = rmt_apply_carrier(tx, &carrierCfg);
-	if (e != ESP_OK)
+	if (e != ESP_OK) {  // no carrier -> receiver can't demodulate; fail the send so the tile reverts
 		Serial.printf("[ir] rmt_apply_carrier(%u) failed: %s\n", carrier, esp_err_to_name(e));
+		rmt_del_encoder(enc);
+		rmt_del_channel(tx);
+		return false;
+	}
 	if (rmt_enable(tx) != ESP_OK) {
 		rmt_del_encoder(enc);
 		rmt_del_channel(tx);
@@ -215,7 +219,9 @@ bool pollIRBurst(uint16_t* out, size_t cap, size_t* outLen, uint16_t* outCarrier
 
 	s_frameReady = false;
 	rmt_receive_config_t c = makeRxConfig();
-	rmt_receive(s_rx, s_rxBuf, sizeof(s_rxBuf), &c);
+	esp_err_t re = rmt_receive(s_rx, s_rxBuf, sizeof(s_rxBuf), &c);
+	if (re != ESP_OK)
+		Serial.printf("[ir] rmt_receive re-arm failed: %s\n", esp_err_to_name(re));
 
 	if (outN == 0)
 		return false;

@@ -227,11 +227,20 @@ void armBand(RfBand& b) {
 		}
 		rmt_rx_event_callbacks_t cbs = {};
 		cbs.on_recv_done = rfRxDoneCb;
-		rmt_rx_register_event_callbacks(b.rx, &cbs, &b);  // ctx = this band
+		esp_err_t ce = rmt_rx_register_event_callbacks(b.rx, &cbs, &b);  // ctx = this band
+		if (ce != ESP_OK) {  // no done-callback -> capture would silently never complete
+			Serial.printf("[rf] rmt_rx_register_event_callbacks failed: %s\n", esp_err_to_name(ce));
+			rmt_del_channel(b.rx);
+			b.rx = nullptr;
+			return;
+		}
 	}
 	if (!b.rxEnabled) {
-		if (rmt_enable(b.rx) != ESP_OK)
+		if (rmt_enable(b.rx) != ESP_OK) {
+			rmt_del_channel(b.rx);  // else the stale handle blocks TX on this band forever
+			b.rx = nullptr;
 			return;
+		}
 		b.rxEnabled = true;
 	}
 	strobe(*b.spi, b.cs, kSrx);
@@ -290,7 +299,9 @@ bool collapseBand(RfBand& b, uint16_t* out, size_t cap, size_t* outLen) {
 
 	b.frameReady = false;
 	rmt_receive_config_t c = makeRfRxConfig();
-	rmt_receive(b.rx, b.buf, sizeof(b.buf), &c);
+	esp_err_t re = rmt_receive(b.rx, b.buf, sizeof(b.buf), &c);
+	if (re != ESP_OK)
+		Serial.printf("[rf] rmt_receive re-arm failed: %s\n", esp_err_to_name(re));
 
 	if (outN == 0)
 		return false;

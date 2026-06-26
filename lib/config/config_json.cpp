@@ -140,7 +140,9 @@ bool fromJson(const char* data, size_t len, Config& out) {
 				slot.code.kind      = CodeKind::IR;
 				slot.code.carrierHz = jc["carrierHz"] | slot.code.carrierHz;
 			}
-			for (JsonVariantConst pv : jc["pulses"].as<JsonArrayConst>())
+			JsonArrayConst pulses = jc["pulses"].as<JsonArrayConst>();
+			slot.code.pulses.reserve(pulses.size());
+			for (JsonVariantConst pv : pulses)
 				slot.code.pulses.push_back(pv.as<uint16_t>());
 			slot.repeatCount   = jc["repeatCount"]   | slot.repeatCount;
 			slot.repeatDelayMs = jc["repeatDelayMs"] | slot.repeatDelayMs;

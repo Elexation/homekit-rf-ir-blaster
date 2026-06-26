@@ -52,7 +52,7 @@ window.BlasterLearn = (function () {
 	function readMeta(code) {
 		var detail = code.kind === 'ir'
 			? 'Carrier <strong>' + (code.carrierHz / 1000) + ' kHz</strong>'
-			: 'Frequency <strong>' + (code.freqMHz || 0) + ' MHz</strong>';
+			: 'Frequency <strong>' + (parseInt(code.freqMHz, 10) || 0) + ' MHz</strong>';
 		return '<div class="learn-read__meta">' +
 			'<span>Band <strong>' + (code.kind === 'ir' ? 'Infrared' : 'RF') + '</strong></span>' +
 			'<span>' + detail + '</span>' +
