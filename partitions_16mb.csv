@@ -1,0 +1,10 @@
+# Custom 16 MB layout for the WROOM-1-N16R8 PCB, no SPIFFS (NVS + PROGMEM only).
+# NVS holds a MAX_CONFIG_BYTES blob alongside HomeSpan pairing and the TLS cert, and
+# ESP-IDF caps one blob near 97.6% of the partition minus ~4 KB, so 0x5000 is too small.
+# Set before first OTA: the table cannot change over OTA.
+# Name,   Type, SubType, Offset,   Size, Flags
+nvs,      data, nvs,     0x9000,   0x1D000,
+otadata,  data, ota,     0x26000,  0x2000,
+app0,     app,  ota_0,   0x30000,  0x7E0000,
+app1,     app,  ota_1,   0x810000, 0x7E0000,
+coredump, data, coredump,0xFF0000, 0x10000,
