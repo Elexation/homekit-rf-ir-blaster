@@ -53,6 +53,11 @@ bool IRAM_ATTR rxDoneCb(rmt_channel_handle_t, const rmt_rx_done_event_data_t* ed
 
 }  // namespace
 
+void parkIRTx() {
+	pinMode(kIrTxPin, OUTPUT);
+	digitalWrite(kIrTxPin, LOW);
+}
+
 void initIR() {
 	rmt_rx_channel_config_t rxcfg = {};
 	rxcfg.gpio_num = kIrRxPin;
@@ -105,6 +110,7 @@ bool sendIR(const IRCode& code) {
 	rmt_copy_encoder_config_t ec = {};
 	if (rmt_new_copy_encoder(&ec, &enc) != ESP_OK) {
 		rmt_del_channel(tx);
+		parkIRTx();
 		return false;
 	}
 	rmt_carrier_config_t carrierCfg = {};
@@ -116,11 +122,13 @@ bool sendIR(const IRCode& code) {
 		Serial.printf("[ir] rmt_apply_carrier(%u) failed: %s\n", carrier, esp_err_to_name(e));
 		rmt_del_encoder(enc);
 		rmt_del_channel(tx);
+		parkIRTx();
 		return false;
 	}
 	if (rmt_enable(tx) != ESP_OK) {
 		rmt_del_encoder(enc);
 		rmt_del_channel(tx);
+		parkIRTx();
 		return false;
 	}
 
@@ -139,6 +147,7 @@ bool sendIR(const IRCode& code) {
 	rmt_disable(tx);
 	rmt_del_encoder(enc);
 	rmt_del_channel(tx);
+	parkIRTx();  // teardown releases the pad back to its reset state
 	return sent;
 }
 

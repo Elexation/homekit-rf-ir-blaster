@@ -22,6 +22,7 @@ static void markOtaImageGood() {
 }
 
 void setup() {
+	parkIRTx();  // begin() can block into onboarding; an undriven gate line holds the IR banks on
 	Serial.begin(115200);
 
 	homeSpan.setPortNum(config::HAP_PORT);  // move HAP off 80/443 for the config server

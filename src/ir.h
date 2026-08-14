@@ -2,6 +2,8 @@
 
 #include "config_model.h"
 
+// Hold IR_TX low; an undriven pad lets the bank MOSFETs conduct.
+void parkIRTx();
 void initIR();
 bool sendIR(const IRCode& code);
 
