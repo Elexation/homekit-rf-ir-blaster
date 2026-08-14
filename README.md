@@ -16,7 +16,7 @@ Control is over HomeKit only (encrypted and authenticated by HAP). Configuration
 
 ## Hardware
 
-The reference build targets the Waveshare ESP32-S3-Zero (ESP32-S3FH4R2). Every GPIO and RF parameter is overridable with a build flag, so a different board, pin map, crystal, or band is a configuration change with no source edits.
+The reference build targets the Waveshare ESP32-S3-Zero (ESP32-S3FH4R2). A second target for a bare ESP32-S3-WROOM-1-N16R8 board is also included. Every GPIO and RF parameter is overridable with a build flag, so a different board, pin map, crystal, or band is a configuration change with no source edits.
 
 ### Bill of materials (reference build)
 
@@ -68,12 +68,12 @@ The two radios are fixed at 315 and 433 MHz, which covers most consumer fixed-co
 
 ## Build and flash
 
-Built with [PlatformIO](https://platformio.org/); the board id is `lolin_s3_mini`.
+Built with [PlatformIO](https://platformio.org/). Two device environments ship: `lolin_s3_mini` for the Waveshare Zero reference build, and `pcb` for the ESP32-S3-WROOM-1-N16R8 board.
 
-- Build: `pio run -e lolin_s3_mini`
+- Build: `pio run -e lolin_s3_mini` (or `-e pcb`)
 - Flash over USB, then monitor: `pio run -e lolin_s3_mini -t upload` then `pio device monitor -b 115200`
 
-The first flash must go over USB and uses the custom `partitions.csv` (no SPIFFS, dual OTA slots), which cannot be changed over the air, so it has to be right before the first OTA. Web UI assets are bundled into the firmware at build time.
+The first flash must go over USB and uses a custom partition table (no SPIFFS, dual OTA slots): `partitions.csv` for the 4 MB Zero, `partitions_16mb.csv` for the 16 MB board. The table cannot be changed over the air, so it has to be right before the first OTA. Web UI assets are bundled into the firmware at build time.
 
 ## First-time setup
 
@@ -99,7 +99,7 @@ Open the device's address over HTTPS (the self-signed certificate gives a one-ti
 OTA uses a per-device password (auto-generated on first boot, shown read-only and regenerable on the settings page). To push a build (the bundled PlatformIO Python provides `espota.py`):
 
 ```sh
-espota.py -i <device-ip> -p 3232 -a <password> -f .pio/build/lolin_s3_mini/firmware.bin
+espota.py -i <device-ip> -p 3232 -a <password> -f .pio/build/<env>/firmware.bin
 ```
 
 On Windows the device connects back to the host to pull the image, so allow the PlatformIO Python through the firewall, and pass `-I <host-lan-ip>` if the host has virtual network adapters. Images are validated before install, and one that crashes early in boot reverts to the previous slot. Always USB-test a build before pushing it over the air.
