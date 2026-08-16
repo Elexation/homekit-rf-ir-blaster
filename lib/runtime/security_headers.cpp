@@ -39,7 +39,6 @@ const SecurityHeader kStaticSecurityHeaders[] = {
 	{"X-Content-Type-Options", "nosniff"},
 	{"X-Frame-Options", "DENY"},
 	{"Referrer-Policy", "no-referrer"},
-	{"Cache-Control", "no-store"},
 	// default-src 'self' bans inline script/style; the UI is authored to satisfy it
 	{"Content-Security-Policy",
 	 "default-src 'self'; frame-ancestors 'none'; form-action 'self'; "
@@ -47,5 +46,8 @@ const SecurityHeader kStaticSecurityHeaders[] = {
 };
 const size_t kStaticSecurityHeaderCount =
 	sizeof(kStaticSecurityHeaders) / sizeof(kStaticSecurityHeaders[0]);
+
+const char kCacheNoStore[]   = "no-store";
+const char kCacheImmutable[] = "public, max-age=31536000, immutable";
 
 }  // namespace runtime

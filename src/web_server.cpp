@@ -86,6 +86,8 @@ esp_err_t sendAsset(httpd_req_t* req, const web_assets::Asset* a, bool https) {
 	for (size_t i = 0; i < runtime::kStaticSecurityHeaderCount; ++i)
 		httpd_resp_set_hdr(req, runtime::kStaticSecurityHeaders[i].name,
 		                   runtime::kStaticSecurityHeaders[i].value);
+	httpd_resp_set_hdr(req, "Cache-Control",
+	                   a->immutable ? runtime::kCacheImmutable : runtime::kCacheNoStore);
 	std::string hsts;
 	if (https) {
 		hsts = runtime::hstsHeader();  // outlives the send below

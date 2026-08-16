@@ -19,12 +19,18 @@ const char* csrfCookieName(bool secure);
 // Strict-Transport-Security value; the device sends it only when https.
 std::string hstsHeader();
 
-// Static response headers for every config-panel response.
+// Static response headers for every config-panel response. Cache-Control is NOT here:
+// it is per-response (see below), and sending it twice would emit a duplicate header.
 struct SecurityHeader {
 	const char* name;
 	const char* value;
 };
 extern const SecurityHeader kStaticSecurityHeaders[];
 extern const size_t         kStaticSecurityHeaderCount;
+
+// Cache-Control values. Only an asset whose URL carries a ?v= content stamp may use
+// kCacheImmutable; HTML pages and API responses are always kCacheNoStore.
+extern const char kCacheNoStore[];
+extern const char kCacheImmutable[];
 
 }  // namespace runtime

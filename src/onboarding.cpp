@@ -173,6 +173,9 @@ esp_err_t sendAsset(httpd_req_t* req, const web_assets::Asset* a) {
 	for (size_t i = 0; i < runtime::kStaticSecurityHeaderCount; ++i)
 		httpd_resp_set_hdr(req, runtime::kStaticSecurityHeaders[i].name,
 		                   runtime::kStaticSecurityHeaders[i].value);  // no HSTS: plain HTTP
+	// Stays no-store even for stamped assets: onboarding runs once per lifetime behind a
+	// captive portal, so a cache entry buys nothing and could outlive the AP.
+	httpd_resp_set_hdr(req, "Cache-Control", runtime::kCacheNoStore);
 	return httpd_resp_send(req, reinterpret_cast<const char*>(a->data), a->length);
 }
 

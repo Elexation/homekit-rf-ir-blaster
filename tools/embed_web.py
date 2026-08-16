@@ -6,9 +6,15 @@ bundle and the tags rewritten in memory (on-disk web/ is never mutated), cutting
 parallel fetches to fit the device's lwip socket cap (shared with HAP). theme.js
 stays separate (runs in <head> before render). woff2 is stored raw; gzip uses
 mtime 0 so output is stable.
+
+Every non-HTML asset is referenced with a ?v=<content hash> stamp and marked
+immutable, which is what lets the device serve it with a one-year Cache-Control
+(new content produces a new URL, so a firmware update can never serve a stale
+asset). HTML is never stamped and never cacheable: it carries the stamped refs.
 """
 
 import gzip
+import hashlib
 import re
 from pathlib import Path
 
@@ -46,6 +52,26 @@ def ident(url_path):
 	return "k" + "".join(p[:1].upper() + p[1:] for p in parts)
 
 
+def sha8(data):
+	return hashlib.sha256(data).hexdigest()[:8]
+
+
+def stamp_html_refs(text, stamps):
+	"""Stamp a page's own refs, which are root-relative with no leading slash."""
+	for url, mark in stamps.items():
+		ref = url.lstrip("/")
+		text = text.replace(f'"{ref}"', f'"{ref}{mark}"')
+	return text
+
+
+def stamp_css_refs(text, stamps):
+	"""Stamp url() refs inside a bundle served from styles/, so they reach up one level."""
+	for url, mark in stamps.items():
+		ref = ".." + url
+		text = text.replace(f"'{ref}'", f"'{ref}{mark}'").replace(f'"{ref}"', f'"{ref}{mark}"')
+	return text
+
+
 def byte_lines(data):
 	lines = []
 	for i in range(0, len(data), 16):
@@ -53,47 +79,70 @@ def byte_lines(data):
 	return "\n".join(lines)
 
 
-def make_bundle(text, block_re, ref_re, rel_url, tag_tmpl, sep):
-	"""Replace a tag run with one bundle tag; return (text, consumed_paths, (url, bytes))."""
+def make_bundle(text, block_re, ref_re, rel_url, tag_tmpl, sep, rewrite=None):
+	"""Replace a tag run with one stamped bundle tag; return (text, consumed, asset)."""
 	m = block_re.search(text)
 	if not m:
 		return text, [], None
 	paths = [(WEB_DIR / r).resolve() for r in ref_re.findall(m.group(0))]
-	raw = sep.join(p.read_text(encoding="utf-8") for p in paths).encode("utf-8")
-	new_text = text[:m.start()] + tag_tmpl.format(url=rel_url) + "\n" + text[m.end():]
-	return new_text, paths, ("/" + rel_url, raw)
+	body = sep.join(p.read_text(encoding="utf-8") for p in paths)
+	if rewrite:
+		body = rewrite(body)
+	raw = body.encode("utf-8")
+	tag = tag_tmpl.format(url=f"{rel_url}?v={sha8(raw)}")
+	return text[:m.start()] + tag + "\n" + text[m.end():], paths, ("/" + rel_url, raw, True)
 
 
 def collect():
-	"""Return an ordered list of (url, raw_bytes) for every served asset."""
+	"""Return an ordered list of (url, raw_bytes, immutable) for every served asset.
+
+	Emission order is a dependency order: the font is stamped before the CSS bundles that
+	reference it, and the bundles before the HTML that references them.
+	"""
 	items = []
 	consumed = set()
-	rewritten = {}
+	pages = []
+	stamps = {}  # url -> "?v=hash", for every asset another asset links to
+
+	for path in sorted(p for p in WEB_DIR.rglob("*") if p.is_file()):
+		if path.name in SKIP_NAMES or path.suffix.lower() in (".html", ".css", ".js"):
+			continue
+		url = "/" + path.relative_to(WEB_DIR).as_posix()
+		raw = path.read_bytes()
+		stamps[url] = f"?v={sha8(raw)}"
+		items.append((url, raw, True))
+
 	for html in sorted(WEB_DIR.glob("*.html")):
 		text = html.read_text(encoding="utf-8")
 		stem = html.stem
 		text, css_paths, css_bundle = make_bundle(
 			text, CSS_BLOCK, CSS_REF, f"styles/{stem}.bundle.css",
-			'<link rel="stylesheet" href="{url}">', "\n")
+			'<link rel="stylesheet" href="{url}">', "\n",
+			lambda body: stamp_css_refs(body, stamps))
 		text, js_paths, js_bundle = make_bundle(
 			text, JS_BLOCK, JS_REF, f"js/{stem}.bundle.js",
 			'<script src="{url}"></script>', "\n;\n")
 		if css_bundle is None or js_bundle is None:
 			raise SystemExit(f"{html.name}: expected a stylesheet run and a body-script run to bundle")
-		rewritten[html.resolve()] = text
+		pages.append(("/" + html.relative_to(WEB_DIR).as_posix(), text))
 		consumed.update(css_paths)
 		consumed.update(js_paths)
 		items.append(css_bundle)
 		items.append(js_bundle)
 
+	# Code that survived bundling (theme.js runs in <head>, so it is never in a body run).
 	for path in sorted(p for p in WEB_DIR.rglob("*") if p.is_file()):
 		if path.name in SKIP_NAMES or path.resolve() in consumed:
 			continue
+		if path.suffix.lower() not in (".css", ".js"):
+			continue
 		url = "/" + path.relative_to(WEB_DIR).as_posix()
-		if path.suffix.lower() == ".html":
-			items.append((url, rewritten[path.resolve()].encode("utf-8")))
-		else:
-			items.append((url, path.read_bytes()))
+		raw = path.read_bytes()
+		stamps[url] = f"?v={sha8(raw)}"
+		items.append((url, raw, True))
+
+	for url, text in pages:
+		items.append((url, stamp_html_refs(text, stamps).encode("utf-8"), False))
 	return items
 
 
@@ -102,13 +151,13 @@ def build():
 	if not items:
 		raise SystemExit(f"no assets found under {WEB_DIR}")
 	assets = []
-	for url, raw in items:
+	for url, raw, immutable in items:
 		ext = "." + url.rsplit(".", 1)[-1].lower()
 		if ext not in TYPES:
 			raise SystemExit(f"no content type mapped for {url}; add it to TYPES in tools/embed_web.py")
 		ctype, do_gzip = TYPES[ext]
 		stored = gzip.compress(raw, 9, mtime=0) if do_gzip else raw
-		assets.append((url, ctype, do_gzip, len(raw), stored))
+		assets.append((url, ctype, do_gzip, len(raw), stored, immutable))
 	assets.sort(key=lambda a: a[0])  # deterministic manifest order
 
 	out = []
@@ -129,18 +178,20 @@ def build():
 	out.append("\tconst char*    contentType;")
 	out.append("\tconst uint8_t* data;")
 	out.append("\tsize_t         length;")
-	out.append("\tbool           gzipped;  // serve with Content-Encoding: gzip")
+	out.append("\tbool           gzipped;    // serve with Content-Encoding: gzip")
+	out.append("\tbool           immutable;  // ?v=-stamped URL: safe to cache for a year")
 	out.append("};")
 	out.append("")
-	for url, _, _, _, stored in assets:
+	for url, _, _, _, stored, _ in assets:
 		out.append(f"static const uint8_t {ident(url)}[] PROGMEM = {{")
 		out.append(byte_lines(stored))
 		out.append("};")
 		out.append("")
 	out.append("static const Asset kAssets[] = {")
-	for url, ctype, do_gzip, _, _ in assets:
+	for url, ctype, do_gzip, _, _, immutable in assets:
 		gz = "true" if do_gzip else "false"
-		out.append(f'\t{{"{url}", "{ctype}", {ident(url)}, sizeof({ident(url)}), {gz}}},')
+		im = "true" if immutable else "false"
+		out.append(f'\t{{"{url}", "{ctype}", {ident(url)}, sizeof({ident(url)}), {gz}, {im}}},')
 	out.append("};")
 	out.append("static const size_t kAssetCount = sizeof(kAssets) / sizeof(kAssets[0]);")
 	out.append("")
@@ -153,9 +204,9 @@ def main():
 	content, assets = build()
 	total_raw = sum(a[3] for a in assets)
 	total_stored = sum(len(a[4]) for a in assets)
-	for url, _, do_gzip, raw_len, stored in assets:
+	for url, _, do_gzip, raw_len, stored, immutable in assets:
 		note = "gzip" if do_gzip else "raw"
-		print(f"{url:32} {raw_len:7} -> {len(stored):7} ({note})")
+		print(f"{url:32} {raw_len:7} -> {len(stored):7} ({note}{', cached' if immutable else ''})")
 	print(f"{'total':32} {total_raw:7} -> {total_stored:7}")
 	if OUT_PATH.exists() and OUT_PATH.read_text(encoding="utf-8") == content:
 		print(f"{OUT_PATH} unchanged")

@@ -662,20 +662,27 @@ static void test_hsts_header() {
 
 // The static hardening headers carry their exact names and values.
 static void test_static_security_headers() {
-	TEST_ASSERT_EQUAL_UINT(5, kStaticSecurityHeaderCount);
+	TEST_ASSERT_EQUAL_UINT(4, kStaticSecurityHeaderCount);
 	TEST_ASSERT_EQUAL_STRING("X-Content-Type-Options", kStaticSecurityHeaders[0].name);
 	TEST_ASSERT_EQUAL_STRING("nosniff", kStaticSecurityHeaders[0].value);
 	TEST_ASSERT_EQUAL_STRING("X-Frame-Options", kStaticSecurityHeaders[1].name);
 	TEST_ASSERT_EQUAL_STRING("DENY", kStaticSecurityHeaders[1].value);
 	TEST_ASSERT_EQUAL_STRING("Referrer-Policy", kStaticSecurityHeaders[2].name);
 	TEST_ASSERT_EQUAL_STRING("no-referrer", kStaticSecurityHeaders[2].value);
-	TEST_ASSERT_EQUAL_STRING("Cache-Control", kStaticSecurityHeaders[3].name);
-	TEST_ASSERT_EQUAL_STRING("no-store", kStaticSecurityHeaders[3].value);
-	TEST_ASSERT_EQUAL_STRING("Content-Security-Policy", kStaticSecurityHeaders[4].name);
+	TEST_ASSERT_EQUAL_STRING("Content-Security-Policy", kStaticSecurityHeaders[3].name);
 	TEST_ASSERT_EQUAL_STRING(
 		"default-src 'self'; frame-ancestors 'none'; form-action 'self'; "
 		"base-uri 'none'; object-src 'none'",
-		kStaticSecurityHeaders[4].value);
+		kStaticSecurityHeaders[3].value);
+}
+
+// Cache-Control is per-response, so it must NOT also be in the always-on set: a caller
+// sending both would emit a duplicate header and the immutable value could never win.
+static void test_cache_control_values() {
+	for (size_t i = 0; i < kStaticSecurityHeaderCount; ++i)
+		TEST_ASSERT_NOT_EQUAL(0, strcmp("Cache-Control", kStaticSecurityHeaders[i].name));
+	TEST_ASSERT_EQUAL_STRING("no-store", kCacheNoStore);
+	TEST_ASSERT_EQUAL_STRING("public, max-age=31536000, immutable", kCacheImmutable);
 }
 
 // --- first-boot setup (auth core) ---
@@ -780,6 +787,7 @@ int main(int, char**) {
 	RUN_TEST(test_cookie_name_selector);
 	RUN_TEST(test_hsts_header);
 	RUN_TEST(test_static_security_headers);
+	RUN_TEST(test_cache_control_values);
 	RUN_TEST(test_setup_current_mode);
 	RUN_TEST(test_setup_configured_rejects);
 	RUN_TEST(test_setup_valid_nonce_allows);
