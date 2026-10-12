@@ -420,7 +420,7 @@ void run() {
 
 	WiFi.persistent(false);     // don't let the SoftAP config touch the WiFi-lib NVS store
 	WiFi.setAutoReconnect(false);  // a failed verify must not retry in the background
-	WiFi.mode(WIFI_AP_STA);     // AP for the portal, STA so the live verify can connect
+	WiFi.mode(WIFI_STA);        // scan with no AP up; softAP() below adds it under its real name
 	uint8_t mac[6] = {0};
 	esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);  // efuse read: AP MAC isn't live until softAP() below
 	char ssid[33];
