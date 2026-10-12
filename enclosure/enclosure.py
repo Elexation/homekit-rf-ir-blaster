@@ -280,7 +280,7 @@ def preview(bottom, top, board):
 def main():
 	ap = argparse.ArgumentParser(description=__doc__)
 	ap.add_argument("--check", action="store_true", help="test the fit against the board STEP")
-	ap.add_argument("--preview", action="store_true", help="write GLB meshes of both shells and the board")
+	ap.add_argument("--preview", action="store_true", help="write GLB meshes of the shells, the board, and the SMA adapters")
 	args = ap.parse_args()
 
 	bottom, top = shells()
